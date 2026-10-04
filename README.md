@@ -30,6 +30,17 @@ estabelecimento mais antigo daquele ponto, menos 1900 (aberturas anteriores a 19
 dados novos; arquivos já compactados são ignorados, e os de layout sem ano (`BLP2`) pedem uma
 nova extração.
 
+### Setores (CNAE)
+
+O seletor no painel do lugar filtra o mapa por setor: as 21 seções da CNAE 2.0 (A a U), tiradas da
+divisão do CNAE principal de cada estabelecimento. Um endereço aparece num setor quando tem pelo
+menos um estabelecimento nele. O extrator grava por ponto uma máscara de seções (`RAW3`), e
+`scripts/repack.py` a separa em `data/<uf>.setores.bin.gz`, baixado só quando alguém filtra:
+`BLS1`, `n`, `m`, depois `n` bytes com a seção do ponto (255 quando o endereço tem mais de uma) e,
+em três planos de `m` bytes, as máscaras desses `m` pontos, na mesma ordem dos pontos do arquivo
+principal. `meta.json` traz por UF, em `setores`, os ativos e os geolocalizados de cada seção. O setor
+vai no link junto com o lugar: `#sp~g` é São Paulo, só comércio.
+
 ### Linha do tempo
 
 O controle na base da tela esconde os pontos abertos depois do ano escolhido (1900 a 2025; mude

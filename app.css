@@ -162,6 +162,36 @@ button {
   text-wrap: balance;
 }
 
+/* The sector filter: a quiet select in the panel's own glass, a caret drawn
+   in --dim. The options take the opaque ink (their list is the system's). */
+.sector select {
+  display: block;
+  width: 100%;
+  padding: 6px 28px 6px 10px;
+  line-height: 1.4;
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  background: rgba(var(--ink-raw), 0.5)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238f8473' stroke-width='1.4'/%3E%3C/svg%3E")
+    no-repeat right 10px center / 10px 6px;
+  color: var(--lamp);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+@media (hover: hover) {
+  .sector select:hover { border-color: var(--hair-hi); }
+}
+
+.sector select option { background: var(--ink); color: var(--lamp); }
+
+/* Chromium's customizable select (appearance: base-select) draws its own
+   arrow over ours. */
+.sector select::picker-icon { display: none; }
+
 /* The place's facts: label left, figure right, one a row, so the eye runs
    down the figures. Display face, figures lined up. */
 .facts {

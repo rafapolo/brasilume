@@ -18,6 +18,7 @@ var current = null;
 self.onmessage = function (e) {
   var id = e.data.id;
   var url = e.data.url;
+  if (e.data.kind === "setores") { loadSetores(id, url); return; }
   if (current) current.abort();
   var controller = new AbortController();
   current = controller;
@@ -80,6 +81,35 @@ self.onmessage = function (e) {
       self.postMessage({ id: id, ok: false, error: err.message });
     });
 };
+
+// A place's CNAE sections, fetched once someone filters by sector (the page
+// runs a second worker for it, so this never aborts a point download). Layout,
+// see scripts/repack.py (write_setores): "BLS1", u32 n, u32 m, then n bytes
+// (section 0..20, or 255 for an address with several) and three planes of m
+// bytes holding those m addresses' masks. Answers code (n bytes) and multi
+// (m u32 masks, in the same order as the 255s in code).
+function loadSetores(id, url) {
+  fetch(url)
+    .then(function (res) {
+      if (!res.ok) throw new Error("fetch " + url + " -> " + res.status);
+      if (typeof DecompressionStream === "undefined" || !res.body) return res.arrayBuffer().then(gunzip);
+      return new Response(res.body.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
+    })
+    .then(function (buf) {
+      var head = new DataView(buf, 0, 12);
+      var magic = String.fromCharCode(head.getUint8(0), head.getUint8(1), head.getUint8(2), head.getUint8(3));
+      if (magic !== "BLS1") throw new Error("formato de setores desconhecido");
+      var n = head.getUint32(4, true), m = head.getUint32(8, true);
+      var code = new Uint8Array(buf.slice(12, 12 + n));
+      var planes = new Uint8Array(buf, 12 + n, 3 * m);
+      var multi = new Uint32Array(m);
+      for (var j = 0; j < m; j++) multi[j] = planes[j] | (planes[m + j] << 8) | (planes[2 * m + j] << 16);
+      self.postMessage({ id: id, ok: true, n: n, code: code, multi: multi }, [code.buffer, multi.buffer]);
+    })
+    .catch(function (err) {
+      self.postMessage({ id: id, ok: false, error: err.message });
+    });
+}
 
 function gunzip(buf) {
   if (typeof fflate === "undefined") importScripts("https://unpkg.com/fflate@0.8.2/umd/index.js");
