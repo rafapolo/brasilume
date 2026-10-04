@@ -316,8 +316,9 @@
   //   would smear into ellipses under the tilt),
   // - antialiased by smoothstep(d - 0.5, d + 0.5, R) on the distance d from the
   //   centre, also in CSS pixels, over a sprite padded by 0.5 px,
-  // - color [139,87,79] with alpha = opacidade (rounded to 8 bits, as a vertex
-  //   color was) * brilho (a float gain that can exceed 1),
+  // - color [139,87,79] with alpha = opacidade * brilho (a float gain that can
+  //   exceed 1); opacidade is no longer rounded to 8 bits as a vertex color
+  //   was: near 0.08, where auto keeps it from afar, a step was 5% of light,
   // - additive blending, SRC_ALPHA + ONE, on black: N stacked dots sum their
   //   light until the channel clamps to white. brilho therefore sets how many
   //   stacked dots it takes to reach white.
@@ -527,7 +528,7 @@
         if (!data) return;
         var dpr = map.getPixelRatio ? map.getPixelRatio() : window.devicePixelRatio || 1;
         var R = params.radius, extent = R + 0.5;
-        var light = (Math.round(255 * params.alpha) / 255) * params.gain;
+        var light = params.alpha * params.gain;
         var size = 2 * extent * dpr;
         var mx = 1 + size / gl.drawingBufferWidth, my = 1 + size / gl.drawingBufferHeight;
 
@@ -631,9 +632,15 @@
 
   var knobs = ["opacity", "brightness", "dotsize"];
 
-  function knobValue(name) { return parseFloat($(name).value); }
+  // A range input rounds what it is given to its step, 0.01: an eighth of
+  // an opacidade of 0.08, and the light is opacidade * brilho. So what is
+  // drawn is the value last written, kept here; the slider only shows it.
+  var knobAt = {};
+
+  function knobValue(name) { return name in knobAt ? knobAt[name] : parseFloat($(name).value); }
 
   function setKnob(name, v) {
+    knobAt[name] = +v;
     $(name).value = v;
     $(name + "-out").textContent = (+v).toFixed(2);
     paintKnob($(name));
@@ -645,32 +652,29 @@
     el.style.setProperty("--fill", ((el.value - el.min) / (el.max - el.min)).toFixed(4));
   }
 
-  // The sliders are ABSOLUTE readouts-and-controls, not trims: auto (or, with
-  // auto off, the zoom curve) writes the computed values straight into the
-  // sliders, so the knobs slide on their own as the map moves and their
-  // position *is* the current value.
+  // The sliders are ABSOLUTE readouts-and-controls, not trims: auto writes
+  // the computed values straight into the sliders, so the knobs slide on
+  // their own as the map moves and their position *is* the current value.
   //
-  // Dragging a slider overrides that value until the next move, which
-  // re-asserts it — the cost of having the knobs track the map. The lock
-  // holds a look set by hand.
+  // Dragging a slider closes the lock, which holds the look set by hand;
+  // opening it hands the sliders back to auto.
   //
   // fromZoom: recompute from the curve and push the values into the sliders.
   // Otherwise the user just dragged one, so read the sliders as-is.
   var sharedKnobs = null;   // slider values from a shared link, see showView
-  // The lock by the zoom readout: locked, the zoom leaves the sliders where
+  // The lock by the zoom readout: locked, the map leaves the sliders where
   // they are, so a look set by hand holds at every zoom.
   var knobsLocked = false;
 
-  // auto, on from the start: unlocked, the sliders follow what the screen
-  // holds (autoLook) instead of the zoom curve. Walking the points is too
+  // auto: unlocked, the sliders follow what the screen holds (autoLook).
+  // Walking the points is too
   // slow for every frame of a zoom, so the look is taken at most every
   // AUTO_EVERY ms and the sliders ease to it. A playing timeline holds them:
   // re-exposing every year would cancel the growth it shows.
-  var autoOn = true;
   var AUTO_EVERY = 200;
   var autoGoal = null, autoAt = null, autoTimer = 0, autoLast = 0, autoFrame = 0;
 
-  function autoFollows() { return autoOn && !knobsLocked && !sharedKnobs; }
+  function autoFollows() { return !knobsLocked && !sharedKnobs; }
 
   function autoSoon() {
     if (!autoFollows() || autoTimer) return;
@@ -709,8 +713,9 @@
 
   // The sliders close the gap by AUTO_EASE ms of time constant, whatever the
   // frame rate, as ratios (light is read as ratios). autoAt keeps the exact
-  // values: the sliders round to 0.01.
-  var AUTO_EASE = 70, autoThen = 0;
+  // values: the sliders round to 0.01. No shorter than AUTO_EVERY: the
+  // sliders would reach each look and wait for the next, a zoom in steps.
+  var AUTO_EASE = 200, autoThen = 0;
   function autoEase(now) {
     autoFrame = 0;
     if (!autoFollows()) return;
@@ -751,9 +756,9 @@
     } else if (fromZoom && sharedKnobs) {
       knobs.forEach(function (name) { setKnob(name, sharedKnobs[name]); });
     } else if (fromZoom) {
-      // auto takes the sliders from here; the curve stands in until its
-      // first look lands, and is the whole story with auto off.
-      if (!autoOn || !autoGoal) {
+      // auto takes the sliders from here; the zoom curve stands in until
+      // its first look lands.
+      if (!autoGoal) {
         var c = zoomCurve(z);
         setKnob("opacity", clamp(c.light, 0.05, 1));
         setKnob("brightness", clamp(brightCurve(z), 0.02, 2.5));
@@ -1353,13 +1358,17 @@
       var mid = Math.sqrt(lo * hi);
       if (mean(mid) < AUTO_MEAN) lo = mid; else hi = mid;
     }
-    // The cell AUTO_WHITE from the top: the first bin to pass that rank.
-    var rank = s.lit * (1 - AUTO_WHITE), seen = 0, burnt = 1;
+    // The cell AUTO_WHITE from the top: in the first bin to pass that rank,
+    // as far between the bin before and this one as the rank is into it.
+    // Taken whole, a bin of 3 points giving way to one of 2 would jump the
+    // light by half in the middle of a zoom.
+    var rank = s.lit * (1 - AUTO_WHITE), seen = 0, burnt = 1, below = 1;
     for (var k = 0; k < B; k++) {
       if (!cells[k]) continue;
+      var here = points[k] / cells[k];
+      if (seen + cells[k] > rank) { burnt = below + (here - below) * ((rank - seen) / cells[k]); break; }
       seen += cells[k];
-      burnt = points[k] / cells[k];
-      if (seen > rank) break;
+      burnt = below = here;
     }
     var light = clamp(Math.min(lo, 1 / (burnt * cover)), 0.001, 2.5);
     var opacity = clamp(Math.sqrt(light), 0.05, 1);
@@ -1628,7 +1637,8 @@
       "/" + (map.getZoom() - screenShift()).toFixed(2) + "/" +
       c.lat.toFixed(5) + "/" + c.lng.toFixed(5) + "/" +
       Math.round(map.getBearing()) + "/" + Math.round(map.getPitch()) + "/" +
-      knobs.concat("twinkle").map(function (name) { return knobValue(name).toFixed(2); }).join("/") +
+      // Three places for the light: two would reopen it up to a tenth off.
+      knobs.map(function (name) { return knobValue(name).toFixed(3); }).join("/") + "/" + knobValue("twinkle").toFixed(2) +
       // The year only rides along once the timeline is wound back.
       (tl.target < TL_MAX ? "/" + Math.round(tl.target) : "");
     if (location.hash !== hash) history.replaceState(null, "", hash);
@@ -1845,8 +1855,10 @@
     knobs.forEach(function (name) {
       $(name).addEventListener("input", function () {
         $(name + "-out").textContent = (+this.value).toFixed(2);
+        knobAt[name] = +this.value;
         paintKnob(this);
         autoStop();
+        setLocked(true);
         schedule(false);
         writeHashSoon();
       });
@@ -1856,31 +1868,14 @@
       knobsLocked = on;
       $("knob-lock").setAttribute("aria-pressed", on ? "true" : "false");
       $("knob-lock").title = on
-        ? "Destravar: os controles voltam a acompanhar o mapa"
-        : "Travar: o mapa deixa de mexer nos controles";
+        ? "Travado: a luz fica como está. Clique para ela voltar a acompanhar o mapa"
+        : "Luz automática: acompanha o que está na tela. Clique para travar";
     }
 
     $("knob-lock").addEventListener("click", function () {
       setLocked(!knobsLocked);
-      // Unlocked, the sliders go back to auto (or the zoom curve) right away.
+      // Unlocked, the sliders go back to auto right away.
       if (!knobsLocked) { sharedKnobs = null; schedule(true); }
-    });
-
-    function setAuto(on) {
-      autoOn = on;
-      $("knob-auto").setAttribute("aria-pressed", on ? "true" : "false");
-      $("knob-auto").title = on
-        ? "Auto ligado: a luz acompanha o que está na tela. Clique para seguir só o zoom"
-        : "Auto desligado: a luz segue o zoom. Clique para acompanhar o que está na tela";
-    }
-
-    // Turning auto on takes the sliders back from the lock, or it would
-    // change nothing.
-    $("knob-auto").addEventListener("click", function () {
-      setAuto(!autoOn);
-      if (autoOn) { setLocked(false); sharedKnobs = null; }
-      else autoStop();
-      schedule(true);
     });
 
     $("twinkle").disabled = reduceMotion;

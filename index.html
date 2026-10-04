@@ -42,7 +42,7 @@
        connection while the page loads. -->
   <link rel="preconnect" href="https://ipwho.is" crossorigin>
 
-  <link rel="stylesheet" href="app.css?v=65">
+  <link rel="stylesheet" href="app.css?v=66">
 </head>
 <body>
   <div id="map" aria-label="Mapa de pontos de estabelecimentos"></div>
@@ -106,18 +106,16 @@
         </label>
         <label class="knob">
           <span>cintilar <output id="twinkle-out"></output></span>
-          <input type="range" id="twinkle" min="0" max="1" step="0.01" value="0.46">
+          <input type="range" id="twinkle" min="0" max="1" step="0.01" value="0.25">
         </label>
         <div class="light-foot">
           <span class="light-tools">
-            <button type="button" id="knob-lock" class="lock" aria-pressed="false" aria-label="Travar os controles de luz" title="Travar: o mapa deixa de mexer nos controles">
+            <button type="button" id="knob-lock" class="lock" aria-pressed="false" aria-label="Travar os controles de luz" title="Luz automática: acompanha o que está na tela. Clique para travar">
               <svg viewBox="0 0 12 12" aria-hidden="true">
                 <rect x="2" y="5.5" width="8" height="5.5" rx="1"/>
                 <path class="shackle" d="M4 5.5V3.6a2 2 0 0 1 4 0v1.9"/>
               </svg>
             </button>
-            <button type="button" id="knob-auto" class="auto" aria-pressed="true" title="Auto ligado: a luz acompanha o que está na tela. Clique para seguir só o zoom">
-              <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M5 1.5l1 2.9 2.9 1-2.9 1-1 2.9-1-2.9-2.9-1 2.9-1zM9.6 7.2l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4-1.4-.5 1.4-.5z"/></svg>auto</button>
           </span>
           <span>zoom <output id="zoomval">–</output></span>
         </div>
@@ -216,6 +214,6 @@
 
   <div id="error" class="error" role="alert" hidden></div>
 
-  <script src="app.js?v=61" defer></script>
+  <script src="app.js?v=63" defer></script>
 </body>
 </html>

@@ -698,31 +698,8 @@ button {
 
 .light-tools { display: flex; align-items: center; gap: 6px; }
 
-/* auto: lit while the sliders follow what the screen holds. */
-.auto {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: var(--dim);
-  cursor: pointer;
-}
-
-.auto svg { width: 13px; height: 13px; fill: currentColor; }
-
-.auto[aria-pressed="true"] { color: var(--lamp); text-shadow: 0 0 6px rgba(var(--spark-raw), 0.7); }
-/* Locked, auto waits: the lock holds the sliders. */
-.lock[aria-pressed="true"] + .auto { color: var(--dim); text-shadow: none; }
-
-@media (hover: hover) {
-  .auto:hover { color: var(--lamp); }
-}
-
-/* The lock: open while the sliders follow the zoom, closed and lit when the
-   look is held. */
+/* The lock: open while the sliders follow what the screen holds, closed and
+   lit when the look is held. */
 .lock {
   display: grid;
   place-items: center;
