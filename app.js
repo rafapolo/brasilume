@@ -645,12 +645,14 @@
     el.style.setProperty("--fill", ((el.value - el.min) / (el.max - el.min)).toFixed(4));
   }
 
-  // The sliders are ABSOLUTE readouts-and-controls, not trims: the zoom curve
-  // writes the computed values straight into the sliders, so the knobs slide
-  // on their own as you zoom and their position *is* the current value.
+  // The sliders are ABSOLUTE readouts-and-controls, not trims: auto (or, with
+  // auto off, the zoom curve) writes the computed values straight into the
+  // sliders, so the knobs slide on their own as the map moves and their
+  // position *is* the current value.
   //
-  // Dragging a slider overrides that value until the next zoom, which
-  // re-asserts the curve — the cost of having the knobs track the zoom.
+  // Dragging a slider overrides that value until the next move, which
+  // re-asserts it — the cost of having the knobs track the map. The lock
+  // holds a look set by hand.
   //
   // fromZoom: recompute from the curve and push the values into the sliders.
   // Otherwise the user just dragged one, so read the sliders as-is.
@@ -658,6 +660,79 @@
   // The lock by the zoom readout: locked, the zoom leaves the sliders where
   // they are, so a look set by hand holds at every zoom.
   var knobsLocked = false;
+
+  // auto, on from the start: unlocked, the sliders follow what the screen
+  // holds (autoLook) instead of the zoom curve. Walking the points is too
+  // slow for every frame of a zoom, so the look is taken at most every
+  // AUTO_EVERY ms and the sliders ease to it. A playing timeline holds them:
+  // re-exposing every year would cancel the growth it shows.
+  var autoOn = true;
+  var AUTO_EVERY = 200;
+  var autoGoal = null, autoAt = null, autoTimer = 0, autoLast = 0, autoFrame = 0;
+
+  function autoFollows() { return autoOn && !knobsLocked && !sharedKnobs; }
+
+  function autoSoon() {
+    if (!autoFollows() || autoTimer) return;
+    autoTimer = setTimeout(autoNow, Math.max(0, AUTO_EVERY - (performance.now() - autoLast)));
+  }
+
+  function autoNow() {
+    autoTimer = 0;
+    if (!autoFollows() || tl.playing) return;
+    var look = autoLook();
+    autoLast = performance.now();
+    if (!look) return;
+    autoGoal = look;
+    if (!autoFrame) {
+      autoAt = {};
+      knobs.forEach(function (name) { autoAt[name] = knobValue(name); });
+      autoThen = performance.now();
+      autoFrame = requestAnimationFrame(autoEase);
+    }
+  }
+
+  // New points on screen (a filter, another place): the look is theirs from
+  // the first frame, with no easing from the one before. Eased, a filter
+  // taken off would flash white while the sliders came down.
+  function autoSnap() {
+    if (!autoFollows()) return;
+    var look = autoLook();
+    autoLast = performance.now();
+    if (!look) return;
+    autoStop();
+    autoGoal = look;
+    knobs.forEach(function (name) { setKnob(name, look[name]); });
+    schedule(false);
+    writeHashSoon();
+  }
+
+  // The sliders close the gap by AUTO_EASE ms of time constant, whatever the
+  // frame rate, as ratios (light is read as ratios). autoAt keeps the exact
+  // values: the sliders round to 0.01.
+  var AUTO_EASE = 70, autoThen = 0;
+  function autoEase(now) {
+    autoFrame = 0;
+    if (!autoFollows()) return;
+    var k = 1 - Math.exp(-Math.min(100, now - autoThen) / AUTO_EASE), far = false;
+    autoThen = now;
+    knobs.forEach(function (name) {
+      var v = autoAt[name], g = autoGoal[name];
+      v = reduceMotion || Math.abs(g - v) < 0.004 ? g : v * Math.pow(g / v, k);
+      if (v !== g) far = true;
+      autoAt[name] = v;
+      setKnob(name, v);
+    });
+    apply(false);
+    if (far) autoFrame = requestAnimationFrame(autoEase);
+    else writeHashSoon();
+  }
+
+  // A slider dragged by hand stops the easing under it.
+  function autoStop() {
+    cancelAnimationFrame(autoFrame);
+    autoFrame = 0;
+  }
 
   // cintilar is not on the zoom curve: it stays where the user (or a shared
   // link) left it.
@@ -676,10 +751,15 @@
     } else if (fromZoom && sharedKnobs) {
       knobs.forEach(function (name) { setKnob(name, sharedKnobs[name]); });
     } else if (fromZoom) {
-      var c = zoomCurve(z);
-      setKnob("opacity", clamp(c.light, 0.05, 1));
-      setKnob("brightness", clamp(brightCurve(z), 0.02, 2.5));
-      setKnob("dotsize", c.size);
+      // auto takes the sliders from here; the curve stands in until its
+      // first look lands, and is the whole story with auto off.
+      if (!autoOn || !autoGoal) {
+        var c = zoomCurve(z);
+        setKnob("opacity", clamp(c.light, 0.05, 1));
+        setKnob("brightness", clamp(brightCurve(z), 0.02, 2.5));
+        setKnob("dotsize", c.size);
+      }
+      autoSoon();
     }
     if (fromZoom) writeHashSoon();
     $("zoomval").textContent = z.toFixed(2);
@@ -818,13 +898,17 @@
         easing: easeInOutCubic,
         essential: true,
       });
-      map.once("moveend", function () {
+      function flown() {
         if (id !== flight || !arrived()) { if (id === flight) settle(); else resolve(); return; }
         map.easeTo(Object.assign({}, end, { duration: 700, easing: easeOutSeat, essential: true }));
         map.once("moveend", function () {
           if (id === flight) settle(); else resolve();
         });
-      });
+      }
+      // A flight too long for maxDuration is a jump: it is over, moveend
+      // fired, before flyTo returns.
+      if (map.isMoving()) map.once("moveend", flown);
+      else flown();
     });
     trip.then(function () { traveling--; });
     return trip;
@@ -932,7 +1016,7 @@
     }
     tlRender();
     tl.raf = tl.playing || tl.shown !== tl.target ? requestAnimationFrame(tlStep) : 0;
-    if (!tl.raf) writeHashSoon();
+    if (!tl.raf) { writeHashSoon(); autoSoon(); }
   }
 
   function tlKick() {
@@ -1052,7 +1136,7 @@
     var uf = ufAt(c.lng, c.lat);
     if (!uf || !meta[uf] || uf === requested) return;
     if (z < DETAIL_ZOOM) { if (requested === "BR") prefetchSoon(uf); return; }
-    leavePlace(uf);
+    // The filter set over Brasil holds: the state opens already filtered.
     select(uf, {
       center: [c.lng, c.lat],
       zoom: z,
@@ -1127,6 +1211,8 @@
       d.nView = shown;
     }
     if ((was || d.view) && points) points.refilter(d.uf);
+    if (d.uf === requested && $("addresses")) $("addresses").textContent = fmt(d.nView);
+    if (d.uf === current) autoSnap();
   }
 
   // What d still has to fetch for the filters set now.
@@ -1152,8 +1238,9 @@
     })).then(function () { filterData(d); });
   }
 
-  // Going to another place by hand (a tile, or the camera crossing into it)
-  // starts it unfiltered. A link's filter still applies: the hash sets it.
+  // Picking another place on a tile starts it unfiltered. The camera
+  // crossing into a state keeps the filter (followCamera), and a link's
+  // filter still applies: the hash sets it.
   function leavePlace(uf) {
     if (uf !== requested && (sector !== null || kind !== null)) setFilter(null, null);
   }
@@ -1169,6 +1256,10 @@
     $("kind").value = kind === null ? "" : String(kind);
     $("sector").parentNode.classList.toggle("on", sector !== null);
     $("kind").parentNode.classList.toggle("on", kind !== null);
+    var filtered = sector !== null || kind !== null;
+    $("filter-toggle").classList.toggle("on", filtered);
+    $("filters").classList.toggle("on", filtered);
+    $("filters-now").textContent = sector !== null ? SECTORS[sector] : kind !== null ? KINDS[kind] : "todos";
     if (requested) setReadout(requested);
     var d = current && cache.get(current);
     if (!d) return;
@@ -1220,6 +1311,125 @@
     el.textContent = fmt(total);
   }
 
+  // auto's look: for what the screen holds right now, not for the zoom. The
+  // curve assumes every point of the place, so a filter or a wound-back
+  // timeline leaves it too dim. The points in frame (same walk as
+  // countOnScreen) are binned into cells AUTO_CELL pixels wide, and from
+  // how many points pile into each lit cell:
+  //
+  //   tamanho  grows with the gap between lit cells, so a sparse view gets
+  //            dots that can be seen and a packed one keeps them apart;
+  //            never past AUTO_SIZE_MAX, where they start to blur.
+  //   light    the lower of two: the lit cells at AUTO_MEAN of white on
+  //            average (what bounds a close view), and no more than
+  //            AUTO_WHITE of them burnt to white (what bounds a far one,
+  //            where a few metros hold most of the points).
+  //
+  // Against the hand-tuned curve: dimmer up close (a third to a half of its
+  // light from zoom 10 down, so the centres keep their gradient instead of
+  // burning white), either way from afar, and several times brighter where a
+  // filter or the timeline leaves the curve nearly dark.
+  var AUTO_CELL = 2;      // CSS px
+  var AUTO_CELLS = 1 << 21;
+  var AUTO_MEAN = 0.7;
+  var AUTO_WHITE = 0.2;
+  var AUTO_SIZE_MAX = 0.75;
+  function autoLook() {
+    var s = autoStats();
+    if (!s) return null;
+    var size = clamp(0.3 + 0.025 * s.gap, 0.35, AUTO_SIZE_MAX);
+    // What one point adds to its pixel: a dot under a pixel wide covers part
+    // of it, a wide one spills onto the cells around.
+    var R = BASE_RADIUS * size, area = Math.PI * R * R;
+    var cover = area <= 1 ? area : Math.max(1, area / (s.px * s.px));
+    var cells = s.cells, points = s.points, B = cells.length;
+    function mean(light) {
+      var sum = 0;
+      for (var i = 0; i < B; i++) if (cells[i]) sum += cells[i] * Math.min(1, (points[i] / cells[i]) * light * cover);
+      return sum / s.lit;
+    }
+    var lo = 0.001, hi = 2.5;
+    for (var step = 0; step < 24; step++) {
+      var mid = Math.sqrt(lo * hi);
+      if (mean(mid) < AUTO_MEAN) lo = mid; else hi = mid;
+    }
+    // The cell AUTO_WHITE from the top: the first bin to pass that rank.
+    var rank = s.lit * (1 - AUTO_WHITE), seen = 0, burnt = 1;
+    for (var k = 0; k < B; k++) {
+      if (!cells[k]) continue;
+      seen += cells[k];
+      burnt = points[k] / cells[k];
+      if (seen > rank) break;
+    }
+    var light = clamp(Math.min(lo, 1 / (burnt * cover)), 0.001, 2.5);
+    var opacity = clamp(Math.sqrt(light), 0.05, 1);
+    return { opacity: opacity, brightness: clamp(light / opacity, 0.02, 2.5), dotsize: size };
+  }
+
+  // The lit cells by how many points each holds, as a histogram: one bin per
+  // count up to AUTO_EXACT, then AUTO_STEPS bins per doubling. It stands for
+  // the sorted list of cells at a fraction of the cost, which matters because
+  // this runs while the map moves. The grid is kept between calls.
+  var AUTO_EXACT = 64, AUTO_STEPS = 8, AUTO_BINS = AUTO_EXACT + 28 * AUTO_STEPS;
+  var autoGrid = new Uint32Array(0);
+  var autoCells = new Float64Array(AUTO_BINS), autoPoints = new Float64Array(AUTO_BINS);
+  function autoStats() {
+    var d = current && cache.get(current);
+    if (!d || !map) return null;
+    var b = map.getBounds();
+    var sw = maplibregl.MercatorCoordinate.fromLngLat(b.getSouthWest());
+    var ne = maplibregl.MercatorCoordinate.fromLngLat(b.getNorthEast());
+    var x0 = sw.x - d.origin[0], x1 = ne.x - d.origin[0];
+    var y0 = ne.y - d.origin[1], y1 = sw.y - d.origin[1];
+    var world = 512 * Math.pow(2, map.getZoom());
+    // Under the tilt the frame's box outgrows the screen: wider cells then.
+    var cell = Math.max(AUTO_CELL / world, Math.sqrt(((x1 - x0) * (y1 - y0)) / AUTO_CELLS));
+    var w = Math.ceil((x1 - x0) / cell), h = Math.ceil((y1 - y0) / cell), size = w * h;
+    if (!(w > 0 && h > 0)) return null;
+    if (autoGrid.length < size) autoGrid = new Uint32Array(size);
+    else autoGrid.fill(0, 0, size);
+    var grid = autoGrid, per = 1 / cell;
+    var cut = Math.min(Math.round(tl.shown), TL_MAX) - TL_MIN;
+    var years = d.view || (d.hasYears && cut < TL_MAX - TL_MIN ? d.years : null);
+    var P = d.positions, B = d.boxes, C = d.chunk, n = d.n;
+    for (var c = 0; c * C < n; c++) {
+      var bx0 = B[c * 4], by0 = B[c * 4 + 1], bx1 = B[c * 4 + 2], by1 = B[c * 4 + 3];
+      if (bx1 < x0 || bx0 > x1 || by1 < y0 || by0 > y1) continue;
+      var i = c * C, end = Math.min(n, i + C), x, y;
+      if (bx0 >= x0 && bx1 < x1 && by0 >= y0 && by1 < y1) {
+        // A chunk wholly in frame: no point of it needs the test.
+        if (years) {
+          for (; i < end; i++) {
+            if (years[i] <= cut) grid[(((P[i * 2 + 1] - y0) * per) | 0) * w + (((P[i * 2] - x0) * per) | 0)]++;
+          }
+        } else {
+          for (; i < end; i++) grid[(((P[i * 2 + 1] - y0) * per) | 0) * w + (((P[i * 2] - x0) * per) | 0)]++;
+        }
+        continue;
+      }
+      for (; i < end; i++) {
+        x = P[i * 2];
+        y = P[i * 2 + 1];
+        if (x < x0 || x >= x1 || y < y0 || y >= y1 || (years && years[i] > cut)) continue;
+        grid[(((y - y0) * per) | 0) * w + (((x - x0) * per) | 0)]++;
+      }
+    }
+    var cells = autoCells, points = autoPoints, lit = 0;
+    cells.fill(0);
+    points.fill(0);
+    for (var k = 0; k < size; k++) {
+      var v = grid[k];
+      if (!v) continue;
+      var bin = v < AUTO_EXACT ? v : Math.min(AUTO_BINS - 1, AUTO_EXACT + ((Math.log2(v / AUTO_EXACT) * AUTO_STEPS) | 0));
+      cells[bin]++;
+      points[bin] += v;
+      lit++;
+    }
+    if (!lit) return null;
+    // gap: the usual distance between lit cells, in pixels.
+    return { cells: cells, points: points, lit: lit, px: cell * world, gap: (cell * world) / Math.sqrt(lit / size) };
+  }
+
   var countTimer = 0;
   function countSoon() {
     clearTimeout(countTimer);
@@ -1232,7 +1442,8 @@
   function setReadout(uf) {
     var info = meta[uf];
     $("place").textContent = NAMES[uf] || uf;
-    $("sector-box").hidden = !hasSectors(uf) && !hasKinds(uf);
+    fitPlace();
+    $("filters").hidden = $("filter-toggle").hidden = !hasSectors(uf) && !hasKinds(uf);
     $("sector").parentNode.hidden = !hasSectors(uf);
     $("kind").parentNode.hidden = !hasKinds(uf);
     // Filtered, the figures are the filter's own. By sector they set against
@@ -1243,25 +1454,49 @@
     var all = { geo: info.n_estab_geolocalizados, ativos: info.n_estab_ativos };
     var sec = bySector ? info.setores[SECTOR_LETTERS[sector]] : all;
     var geo = byKind ? info.especies[kind] : sec.geo;
+    // A share under 1% says so, not 0%.
+    function pct(part, whole) {
+      var p = whole ? (part / whole) * 100 : 0;
+      return (p > 0 && p < 1 ? "<1" : Math.round(p)) + "%";
+    }
     var note = byKind
-      ? Math.round(sec.geo ? (geo / sec.geo) * 100 : 0) + "% dos " + fmt(sec.geo) + " no mapa"
-      : Math.round(sec.ativos ? (sec.geo / sec.ativos) * 100 : 0) + "% dos " + fmt(sec.ativos) + " ativos mapeados";
+      ? pct(geo, sec.geo) + " dos " + fmt(sec.geo) + " no mapa"
+      : pct(sec.geo, sec.ativos) + " dos " + fmt(sec.ativos) + " ativos mapeados";
+    // The place's addresses: its points, past the filter. Filtered, the count
+    // comes with the place's data (filterData fills it in).
+    var d = cache.get(uf);
+    var addresses = !bySector && !byKind ? fmt(info.n_points)
+      : d && !missing(d).length ? fmt(d.nView) : "–";
     function row(label, value, cls, id) {
       return '<div class="fact' + (cls ? " " + cls : "") + '"><span>' + label + "</span><b" +
         (id ? ' id="' + id + '"' : "") + ">" + value + "</b></div>";
     }
     // Label left, figure right, one fact a row, with the share as a plain
-    // note under the count, rules between them. What the screen frames comes
-    // last and is filled in by countOnScreen().
+    // note under the count, rules between them. The same rows for every
+    // place, so the panels under this one stay put. What the screen frames
+    // comes last and is filled in by countOnScreen().
     $("count").innerHTML =
       row("estabelecimentos", fmt(geo), "main") + "<hr>" +
       '<div class="note">' + note + "</div>" +
-      (uf === "BR" ? "<hr>" + row("endereços na amostra", fmt(info.n_points)) : "") + "<hr>" +
+      "<hr>" + row(uf === "BR" ? "endereços na amostra" : "endereços no mapa", addresses, "", "addresses") + "<hr>" +
       // A point is an address: establishments sharing one are a single dot,
       // so this counts addresses, not establishments.
       row("visíveis na tela", "–", "now", "onscreen");
     document.title = (uf === "BR" ? "brasilumen" : (NAMES[uf] + " · brasilumen"));
   }
+
+  // The place's name stays on one line: the long ones shrink to fit.
+  function fitPlace() {
+    var el = $("place");
+    el.style.fontSize = "";
+    var size = parseFloat(getComputedStyle(el).fontSize);
+    while (el.scrollWidth > el.clientWidth && size > 12) el.style.fontSize = (size -= 1) + "px";
+  }
+
+  // The room and the face both change the fit: the window's width, and the
+  // font arriving after the first paint.
+  window.addEventListener("resize", fitPlace);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitPlace);
 
   function markTiles(uf) {
     document.querySelectorAll(".tile[data-uf]").forEach(function (el) {
@@ -1314,6 +1549,7 @@
         var changed = current !== uf, from = current;
         current = uf;
         refreshTimeline();
+        if (changed) autoSnap();
         apply(true);
         countSoon();
         hideProgress();
@@ -1509,7 +1745,7 @@
 
   // Phones show the picker, the sliders and the timeline as sheets over the
   // dock, one at a time; on wider screens only luz folds (short ones).
-  var SHEETS = { picker: "picker", light: "light-panel", timeline: "timeline" };
+  var SHEETS = { picker: "picker", filtros: "sector-box", light: "light-panel", timeline: "timeline" };
   var sheet = null;
 
   function setSheet(name) {
@@ -1520,6 +1756,34 @@
     document.querySelectorAll("[data-sheet]").forEach(function (b) {
       b.setAttribute("aria-expanded", b.dataset.sheet === name ? "true" : "false");
     });
+  }
+
+  // A sheet closes when dragged down by its handle (the strip at its top);
+  // lower down, a drag belongs to the sliders and the tiles.
+  var HANDLE = 36, CLOSE_AT = 56;
+  function dragToClose(el) {
+    var y0 = null, dy = 0;
+    el.addEventListener("touchstart", function (e) {
+      if (!el.classList.contains("open") || e.touches.length !== 1) return;
+      var y = e.touches[0].clientY;
+      if (y - el.getBoundingClientRect().top > HANDLE) return;
+      y0 = y;
+      dy = 0;
+      el.style.transition = "none";
+    }, { passive: true });
+    el.addEventListener("touchmove", function (e) {
+      if (y0 === null) return;
+      dy = Math.max(0, e.touches[0].clientY - y0);
+      el.style.transform = "translateY(" + dy + "px)";
+    }, { passive: true });
+    function end() {
+      if (y0 === null) return;
+      y0 = null;
+      el.style.transition = el.style.transform = "";
+      if (dy > CLOSE_AT) setSheet(null);
+    }
+    el.addEventListener("touchend", end);
+    el.addEventListener("touchcancel", end);
   }
 
   function closePicker() {
@@ -1540,12 +1804,35 @@
       $("kind").appendChild(o);
     });
     // One filter at a time: picking one clears the other.
+    // On phones the filters are a sheet: once one is picked it gets out of
+    // the map's way.
     $("sector").addEventListener("change", function () {
       setFilter(this.value === "" ? null : +this.value, null);
+      if (sheet === "filtros") setSheet(null);
     });
     $("kind").addEventListener("change", function () {
       setFilter(null, this.value === "" ? null : +this.value);
+      if (sheet === "filtros") setSheet(null);
     });
+
+    // Phones show the readout as the place and its count; a tap opens the
+    // rest.
+    document.querySelector(".readout").addEventListener("click", function () {
+      this.classList.toggle("open");
+    });
+
+    // Wider screens fold the filters under their header, and the sliders
+    // under theirs: the filters start folded, the sliders open.
+    $("filters-head").addEventListener("click", function () {
+      var open = $("filters").classList.toggle("unfolded");
+      this.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    $("light-head").addEventListener("click", function () {
+      var open = !$("light-panel").classList.toggle("folded");
+      this.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+
+    Object.keys(SHEETS).forEach(function (name) { dragToClose($(SHEETS[name])); });
 
     buildTimeline();
 
@@ -1559,19 +1846,41 @@
       $(name).addEventListener("input", function () {
         $(name + "-out").textContent = (+this.value).toFixed(2);
         paintKnob(this);
+        autoStop();
         schedule(false);
         writeHashSoon();
       });
     });
 
+    function setLocked(on) {
+      knobsLocked = on;
+      $("knob-lock").setAttribute("aria-pressed", on ? "true" : "false");
+      $("knob-lock").title = on
+        ? "Destravar: os controles voltam a acompanhar o mapa"
+        : "Travar: o mapa deixa de mexer nos controles";
+    }
+
     $("knob-lock").addEventListener("click", function () {
-      knobsLocked = !knobsLocked;
-      this.setAttribute("aria-pressed", knobsLocked ? "true" : "false");
-      this.title = knobsLocked
-        ? "Destravar: os controles voltam a acompanhar o zoom"
-        : "Travar: o zoom deixa de mexer nos controles";
-      // Unlocked, the sliders go back to the zoom curve right away.
+      setLocked(!knobsLocked);
+      // Unlocked, the sliders go back to auto (or the zoom curve) right away.
       if (!knobsLocked) { sharedKnobs = null; schedule(true); }
+    });
+
+    function setAuto(on) {
+      autoOn = on;
+      $("knob-auto").setAttribute("aria-pressed", on ? "true" : "false");
+      $("knob-auto").title = on
+        ? "Auto ligado: a luz acompanha o que está na tela. Clique para seguir só o zoom"
+        : "Auto desligado: a luz segue o zoom. Clique para acompanhar o que está na tela";
+    }
+
+    // Turning auto on takes the sliders back from the lock, or it would
+    // change nothing.
+    $("knob-auto").addEventListener("click", function () {
+      setAuto(!autoOn);
+      if (autoOn) { setLocked(false); sharedKnobs = null; }
+      else autoStop();
+      schedule(true);
     });
 
     $("twinkle").disabled = reduceMotion;
@@ -1695,9 +2004,17 @@
           points = createPointsLayer();
           map.addLayer(points);
           map.on("zoom", function () { schedule(true); });
+          // A pan changes what is in frame as much as a zoom does.
+          map.on("move", autoSoon);
+          map.on("resize", autoSoon);
           map.on("moveend", writeHashSoon);
           map.on("moveend", followCamera);
           map.on("moveend", countSoon);
+          // A tap on the map puts the phone's panels away.
+          map.on("click", function () {
+            setSheet(null);
+            document.querySelector(".readout").classList.remove("open");
+          });
           if (shared) {
             var h = fromHash();
             select(h.uf, showView(h));

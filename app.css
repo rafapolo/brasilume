@@ -153,27 +153,99 @@ button {
   padding: 14px 16px;
 }
 
-/* Three parts under the place, a rule between each: the filters, the
-   place's figures, what the screen frames. */
-.readout hr {
+/* A rule between the place and its figures, and between the figures. */
+.readout hr, .sector hr, .fold-rule {
   width: 100%;
   margin: 0;
   border: 0;
   border-top: 1px solid var(--hair);
 }
 
-/* No filters for this place: no rule for them either. */
-.sector[hidden] + hr { display: none; }
-
 /* The place takes the dots' color, lifted to read as text (--ember): the
    one warm name among the off-white figures. */
 .place {
   color: var(--ember);
   font-weight: 800;
-  font-size: clamp(22px, 2.2vw, 26px);
-  line-height: 1.1;
+  --place: clamp(22px, 2.2vw, 26px);
+  font-size: var(--place);
   letter-spacing: -0.02em;
-  text-wrap: balance;
+  /* One line always, of one height, so the panels under it keep their
+     place: app.js (fitPlace) shrinks the long names to fit. */
+  line-height: calc(var(--place) * 1.1);
+  white-space: nowrap;
+  overflow: hidden;
+  /* A faint glow in the dots' own color, the wordmark's turned down. The
+     padding, taken back by the margin, is room for it inside the clip. */
+  text-shadow: 0 0 6px rgba(var(--spark-raw), 0.3), 0 0 14px rgba(var(--ember-raw), 0.9), 0 0 22px rgba(var(--ember-raw), 0.55);
+  padding: 14px 16px;
+  margin: -14px -16px;
+}
+
+/* The filters' panel: a header that says which one is on, the two selects
+   folded under it. */
+.filters { align-self: stretch; }
+
+.fold-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 16px;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.filters-now {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+
+.filters.on .filters-now { color: var(--ember); }
+
+.fold-head::after {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-right: 1.4px solid var(--dim);
+  border-bottom: 1.4px solid var(--dim);
+  transform: rotate(45deg);
+  transition: transform 160ms;
+}
+
+.fold-head[aria-expanded="true"]::after { margin-top: 3px; transform: rotate(-135deg); }
+
+/* What a header folds: its height runs between 0 and its own (the row of a
+   one-row grid, from 0fr to 1fr), so the panels under it slide instead of
+   jumping. Folded, it is out of the tab order too. */
+.fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 220ms ease;
+}
+
+.fold-in {
+  min-height: 0;
+  overflow: hidden;
+  transition: visibility 0s;
+}
+
+@media (min-width: 641px) {
+  /* Open, a rule sets the selects off from the header. */
+  .sector { padding: 0 16px 14px; }
+  .filters:not(.unfolded) .fold { grid-template-rows: 0fr; }
+  .filters:not(.unfolded) .fold-in { visibility: hidden; transition: visibility 0s 220ms; }
 }
 
 /* The filters: quiet selects in the panel's own glass, a caret drawn in
@@ -491,13 +563,53 @@ button {
 
 .chip[aria-expanded="true"] { border-color: var(--hair-hi); }
 
+/* The two actions carry an icon before the word: a plane, tilted or flat,
+   and a ringed question mark. Phones keep only the icons. */
+#tilt, #about-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+#tilt::before {
+  content: "";
+  width: 11px;
+  height: 7px;
+  border: 1.2px solid currentColor;
+  border-radius: 1px;
+  transition: transform 160ms;
+}
+
+#tilt[aria-pressed="true"]::before { transform: skewX(-24deg); }
+
+#about-open::before {
+  content: "?";
+  display: grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  border: 1.2px solid currentColor;
+  border-radius: 50%;
+  font-size: 8px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
 @media (hover: hover) {
   .chip:hover { border-color: var(--hair-hi); }
 }
 
-.light-panel {
-  width: 100%;
-  padding: 12px 14px 10px;
+/* The sliders fold under a header like the filters do, but start open. */
+.light-panel { width: 100%; }
+.light-body { padding: 0 16px 10px; }
+.light-body .fold-rule { margin-bottom: 12px; }
+
+/* Only where the panel sits in the column: folded behind luz (short
+   screens) or as a sheet (phones), the sliders are always there. */
+@media (min-width: 641px) and (min-height: 861px) {
+  .light-panel.folded .fold { grid-template-rows: 0fr; }
+  .light-panel.folded .fold-in { visibility: hidden; transition: visibility 0s 220ms; }
 }
 
 .knob {
@@ -578,6 +690,31 @@ button {
   font-family: var(--mono);
   font-size: 10px;
   color: var(--dim);
+}
+
+.light-tools { display: flex; align-items: center; gap: 6px; }
+
+/* auto: lit while the sliders follow what the screen holds. */
+.auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.auto svg { width: 13px; height: 13px; fill: currentColor; }
+
+.auto[aria-pressed="true"] { color: var(--lamp); text-shadow: 0 0 6px rgba(var(--spark-raw), 0.7); }
+/* Locked, auto waits: the lock holds the sliders. */
+.lock[aria-pressed="true"] + .auto { color: var(--dim); text-shadow: none; }
+
+@media (hover: hover) {
+  .auto:hover { color: var(--lamp); }
 }
 
 /* The lock: open while the sliders follow the zoom, closed and lit when the
@@ -886,15 +1023,18 @@ button {
   .chips { flex-wrap: nowrap; }
   .light-panel { display: none; width: var(--rail); }
   .light-panel.open { display: block; }
+  /* luz does the folding here: no header, the sliders always under it. */
+  .light-panel .fold-head, .light-panel .fold-rule { display: none; }
+  .light-body { padding-top: 12px; }
 }
 
 /* ---------- phones ---------- */
 
 @media (max-width: 640px) {
-  :root { --gutter: 16px; --dock: 48px; }
+  :root { --gutter: 16px; --dock: 56px; }
 
   /* The column keeps only the intro, top left, with the readout right under
-     it; the chips go bottom right, and the panels become sheets over the dock. */
+     it; everything else is a sheet over the dock, one at a time. */
   .rail {
     bottom: auto;
     width: min(240px, calc(100vw - 2 * var(--gutter)));
@@ -904,42 +1044,107 @@ button {
 
   .masthead { padding: 10px 14px; }
   .dek { display: none; }
-  /* Out of the dissolved right column, to under the intro (52px tall). */
+
+  /* The readout, out of the dissolved right column, to under the intro (52px
+     tall). Folded to the place and its count so the map stays clear; a tap
+     opens the rest. Its filters are a sheet of their own. */
   .readout {
     position: absolute;
     top: calc(var(--top) + 58px);
     left: var(--left);
     z-index: 10;
-    width: min(240px, calc(100vw - 2 * var(--gutter)));
-    padding: 10px 14px 12px;
+    min-width: 170px;
+    max-width: min(240px, calc(100vw - 2 * var(--gutter)));
+    gap: 6px;
+    padding: 9px 30px 10px 14px;
+    cursor: pointer;
   }
 
-  /* Stacked over the dock's row, on the right. */
-  .chips {
+  .readout > hr { display: none; }
+
+  /* The filters' panel dissolves: its box is a sheet of the dock. */
+  .filters { display: contents; }
+  .filters[hidden], .fold-head, .fold-rule { display: none; }
+  /* No folding in a sheet: the wrappers step aside (the filters' box is
+     fixed to the screen, and must not be clipped by them). */
+  .fold, .fold-in { display: contents; }
+  .light-body { padding: 0; }
+  .place { --place: 20px; }
+  .readout:not(.open) .facts > :not(.main) { display: none; }
+  .readout.open { width: 240px; }
+
+  /* A caret says there is more under it. */
+  .readout::after {
+    content: "";
     position: absolute;
-    right: var(--right);
-    bottom: calc(var(--bottom) + 42px);
-    z-index: 10;
-    flex-direction: column;
-    align-items: flex-end;
+    top: 16px;
+    right: 13px;
+    width: 6px;
+    height: 6px;
+    border-right: 1.4px solid var(--dim);
+    border-bottom: 1.4px solid var(--dim);
+    transform: rotate(45deg);
+    transition: transform 160ms;
   }
 
+  .readout.open::after { transform: translateY(3px) rotate(-135deg); }
+
+  /* The dock: one button per sheet on the left, the two actions as round
+     buttons on the right, all a thumb tall. */
   .dock {
     display: flex;
-    gap: 6px;
+    gap: 4px;
     position: absolute;
     left: var(--left);
     bottom: var(--bottom);
     z-index: 13;
   }
 
-  .dock .chip { height: 32px; padding: 0 14px; border-radius: 16px; }
+  .dock .chip { position: relative; height: 40px; padding: 0 8px; border-radius: 20px; }
   .dock .chip[aria-expanded="true"] { background: var(--lamp); color: var(--night); }
 
+  /* A lit dot on filtros while a filter is on. */
+  .dock .chip.on::after {
+    content: "";
+    position: absolute;
+    top: 7px;
+    right: 6px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--ember);
+    box-shadow: 0 0 6px rgba(var(--spark-raw), 0.8);
+  }
+
+  .chips {
+    position: absolute;
+    right: var(--right);
+    bottom: var(--bottom);
+    z-index: 13;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  /* Icons instead of words: a plane, tilted or flat, and a question mark.
+     The words stay for screen readers. */
+  .chips .chip {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 40px;
+    padding: 0;
+    border-radius: 20px;
+    font-size: 0;
+  }
+
+  #tilt, #about-open { gap: 0; }
+  #tilt::before { width: 14px; height: 9px; border: 1.4px solid var(--lamp); }
+  #about-open::before { width: auto; height: auto; border: 0; font-size: 14px; }
+
   /* Sheets: opaque, sliding up from under the dock, one open at a time.
-     visibility keeps their layout (the timeline canvas measures itself). */
-  /* fixed: the picker sits inside the rail, which is positioned. */
-  .picker, .light-panel, .timeline {
+     visibility keeps their layout (the timeline canvas measures itself).
+     fixed: the picker and the filters sit inside positioned parents. */
+  .picker, .sector, .light-panel, .timeline {
     position: fixed;
     left: 0;
     right: 0;
@@ -948,18 +1153,33 @@ button {
     width: auto;
     margin: 0;
     background: var(--ink);
+    border: 1px solid var(--hair);
     border-width: 1px 0 0;
     border-radius: 8px 8px 0 0;
-    padding: 16px var(--gutter) calc(var(--bottom) + var(--dock));
+    padding: 10px var(--gutter) calc(var(--bottom) + var(--dock));
+    cursor: default;
     transform: translateY(100%);
     visibility: hidden;
     transition: transform 220ms ease, visibility 0s 220ms;
   }
 
-  .picker.open, .light-panel.open, .timeline.open {
+  .picker.open, .sector.open, .light-panel.open, .timeline.open {
     transform: none;
     visibility: visible;
     transition: transform 220ms ease;
+  }
+
+  /* The handle: drag it down, or tap the map, to put the sheet away. */
+  .picker::before, .sector::before, .light-panel::before, .timeline::before {
+    content: "";
+    display: block;
+    flex: none;
+    align-self: center;
+    width: 36px;
+    height: 4px;
+    margin: 0 auto 14px;
+    border-radius: 2px;
+    background: var(--hair-hi);
   }
 
   .picker { display: flex; flex-direction: column; align-items: center; }
@@ -967,10 +1187,25 @@ button {
   .tiles { grid-template-columns: repeat(7, 36px); grid-template-rows: repeat(8, 36px); }
   .peek { display: none !important; }
 
+  /* The filters' sheet: thumb-sized selects. */
+  .sector { gap: 14px; }
+  .sector::before { margin-bottom: 0; }
+  .sector select { padding: 12px 30px 12px 12px; font-size: 15px; }
+  .filter { gap: 6px; }
+
   .timeline { --track: 44px; min-width: 0; }
   .tl-head { gap: 10px; margin-bottom: 6px; }
   .tl-year { font-size: 24px; }
   .tl-note { display: none; }
+}
+
+/* Narrow phones: the dock's row tightens so its four buttons clear the two
+   round ones. */
+@media (max-width: 379px) {
+  .dock { gap: 3px; }
+  .dock .chip { padding: 0 6px; letter-spacing: 0.02em; }
+  .chips { gap: 4px; }
+  .chips .chip { width: 34px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
