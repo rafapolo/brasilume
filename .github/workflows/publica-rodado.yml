@@ -1,0 +1,28 @@
+# Each push to main also republishes the site at rodado.xyz/plataformas/brasilumen/:
+# this sends a repository_dispatch to rafapolo/rodado, whose Pages workflow
+# checks out this commit and pulls data/ from the same bucket deploy.yml uses.
+# Independent of deploy.yml; both run from the same push.
+name: publica no rodado
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Avisa o rodado
+        env:
+          TOKEN: ${{ secrets.RODADO_DEPLOY_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::RODADO_DEPLOY_TOKEN não está definido; deploy no rodado não acionado."
+            exit 0
+          fi
+          curl -sS --fail-with-body \
+            -X POST "https://api.github.com/repos/rafapolo/rodado/dispatches" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -d "{\"event_type\":\"brasilumen-updated\",\"client_payload\":{\"sha\":\"${{ github.sha }}\"}}"
