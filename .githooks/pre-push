@@ -1,0 +1,15 @@
+#!/bin/sh
+# Before a push to main, sync data/ to the bucket the deploy pulls it from
+# (scripts/sobe-dados.py), so the Action the push starts publishes current
+# data. A failed sync stops the push. Enable once per clone:
+#   git config core.hooksPath .githooks
+while read local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    python3 scripts/sobe-dados.py || {
+      echo "pre-push: o data/ não subiu para o bucket; push cancelado" >&2
+      exit 1
+    }
+    break
+  fi
+done
+exit 0

@@ -4,7 +4,7 @@ belongs to, so the map can tell which state is under the centre of the screen.
 
 State bounding boxes overlap (SP, MG, RJ, PR...) and there are no polygons here,
 so each cell takes the state with the most points inside it, counted from the
-extractor's raw files (RAW2/RAW3, see repack.py). Cells with no points stay empty and
+extractor's raw files (RAW2..RAW4, see repack.py). Cells with no points stay empty and
 the page looks for the nearest labelled one. Borders are only as sharp as the
 cell, ~22 km at 0.2 degrees.
 
@@ -36,8 +36,8 @@ def main():
     counts = np.zeros((len(ufs), W * H), dtype=np.int64)
     for k, path in enumerate(files):
         raw = gzip.decompress(path.read_bytes())
-        if raw[:4] not in (b"RAW2", b"RAW3"):
-            raise SystemExit(f"{path}: esperava RAW2 ou RAW3")
+        if raw[:4] not in (b"RAW2", b"RAW3", b"RAW4"):
+            raise SystemExit(f"{path}: esperava RAW2, RAW3 ou RAW4")
         n = struct.unpack_from("<I", raw, 4)[0]
         lng = np.frombuffer(raw, "<f4", n, 8)
         lat = np.frombuffer(raw, "<f4", n, 8 + 4 * n)

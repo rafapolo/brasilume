@@ -42,6 +42,7 @@ import numpy as np
 
 MAGIC = b"BLP3"
 MAGIC_SETORES = b"BLS1"
+MAGIC_ESPECIES = b"BLE1"
 OLD_MAGICS = (b"BLP2",)
 Q = 1e-5
 
@@ -89,15 +90,17 @@ def repack(path):
         return None
     if raw[:4] in OLD_MAGICS:
         raise SystemExit(f"{path}: layout BLP2 não tem ano; extraia de novo com extrai_estados_cnpj.py")
-    if raw[:4] not in (b"RAW2", b"RAW3"):
+    if raw[:4] not in (b"RAW2", b"RAW3", b"RAW4"):
         raise SystemExit(f"{path}: layout bruto sem ano; extraia de novo com extrai_estados_cnpj.py")
-    setores = raw[:4] == b"RAW3"
+    setores = raw[:4] in (b"RAW3", b"RAW4")
+    especies = raw[:4] == b"RAW4"
     n = int(np.frombuffer(raw, "<u4", 1, 4)[0])
     o = 8
     lng = np.frombuffer(raw, "<f4", n, o).astype(np.float64)
     lat = np.frombuffer(raw, "<f4", n, o + 4 * n).astype(np.float64)
     year = np.frombuffer(raw, "u1", n, o + 10 * n)
     mask = np.frombuffer(raw, "<u4", n, o + 11 * n) if setores else None
+    esp = np.frombuffer(raw, "u1", n, o + 15 * n) if especies else None
 
     lng0, lat0 = float(lng.min()), float(lat.min())
     x = np.round((lng - lng0) / Q).astype(np.int64)
@@ -113,6 +116,11 @@ def repack(path):
     )
     if setores:
         write_setores(path, mask[order])
+    if especies:
+        # <uf>.especies.bin.gz: "BLE1", u32 n, then n bytes, each point's
+        # CNEFE address kinds (bit k = kind k+1), in the packed file's order.
+        out = path.with_name(path.name.replace(".bin.gz", ".especies.bin.gz"))
+        out.write_bytes(gzip.compress(struct.pack("<4sI", MAGIC_ESPECIES, n) + esp[order].tobytes(), 9))
     packed = gzip.compress(body, 9)
     before = path.stat().st_size
     path.write_bytes(packed)
@@ -147,7 +155,7 @@ def write_setores(path, mask):
 
 def main():
     data = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent / "data"
-    for path in sorted(p for p in data.glob("*.bin.gz") if ".setores." not in p.name):
+    for path in sorted(p for p in data.glob("*.bin.gz") if ".setores." not in p.name and ".especies." not in p.name):
         res = repack(path)
         if res is None:
             print(f"  {path.name}: already packed")

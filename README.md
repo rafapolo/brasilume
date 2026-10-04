@@ -9,9 +9,12 @@ Cada ponto é um estabelecimento com CNPJ ativo, posto no seu endereço do Censo
 ## Dados
 
 - Estabelecimentos ativos do cadastro de CNPJ da Receita Federal.
-- Geolocalização por casamento exato de endereço com o CNEFE (Censo IBGE 2022), sem recurso ao
-  centroide do CEP. Quem não casa fica fora do mapa; `data/meta.json` traz, por UF, quantos dos
-  ativos foram geolocalizados.
+- Geolocalização por casamento de endereço com o CNEFE (Censo IBGE 2022): logradouro e número,
+  ou quadra e lote, sem recurso ao centroide do CEP nem da rua. O casamento entende o título da
+  rua (PROFESSORA, CORONEL…), as abreviações da Receita e o CEP errado ou desatualizado, sempre
+  exigindo o número ou lote exato; as regras estão em `rodado/scripts/extrai_estados_cnpj.py`.
+  Quem não casa fica fora do mapa; `data/meta.json` traz, por UF, quantos dos ativos foram
+  geolocalizados.
 - Vários estabelecimentos no mesmo endereço viram um ponto só.
 - `data/br.bin.gz` é uma amostra de 2 milhões de pontos para a vista do Brasil.
   Dando zoom nela, o mapa abre sozinho o estado sob o centro da tela, com todos os pontos, e segue
@@ -64,8 +67,26 @@ cache do GitHub Pages não misturar versões. `thumbs/` são imagens estáticas 
 `fonts/` traz as duas fontes (Bricolage Grotesque e Martian Mono, variáveis, subconjunto latino)
 servidas daqui, com as licenças SIL OFL.
 
-Para rodar localmente:
+### Dados fora do git
+
+`data/` não fica no repositório: mora no bucket privado `brasilumen` do Hetzner Object Storage.
+O deploy (`.github/workflows/deploy.yml`) baixa o `data/` do bucket com as chaves dos secrets
+`S3_ACCESS_KEY_ID` e `S3_SECRET_ACCESS_KEY` e publica o site inteiro no GitHub Pages, a cada push
+para `main`. O hook `.githooks/pre-push` roda `scripts/sobe-dados.py` antes de cada push para `main`
+e sobe para o bucket os arquivos de `data/` que mudaram, então o deploy sai com os dados atuais.
+Uma vez por clone:
 
 ```sh
+git config core.hooksPath .githooks
+```
+
+As credenciais ficam em `.env` (fora do git): `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`,
+`AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY`. `python3 scripts/sobe-dados.py --seco` mostra o que
+subiria; `--apaga` remove do bucket o que saiu de `data/`.
+
+Para rodar localmente, com o `data/` baixado do bucket:
+
+```sh
+aws s3 sync s3://brasilumen/data/ data/ --endpoint-url https://hel1.your-objectstorage.com
 python3 -m http.server 8000
 ```

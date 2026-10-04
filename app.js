@@ -124,6 +124,13 @@
   ];
   var SECTOR_LETTERS = "ABCDEFGHIJKLMNOPQRSTU";
 
+  // CNEFE address kinds (tipo_especie 1..8), in the order of the bits the
+  // extractor writes.
+  var KINDS = [
+    "Domicílio particular", "Domicílio coletivo", "Agropecuário", "Ensino",
+    "Saúde", "Outras finalidades", "Em construção", "Religioso",
+  ];
+
   var CAPITAL_ZOOM = 11; // on the REF_SIDE reference screen, like the URL
   var GEO_TIMEOUT = 1500;
 
@@ -202,7 +209,7 @@
 
   // Versioned so a cached worker never pairs with a newer app.js (GitHub
   // Pages caches for 10 min). Bump together with the ?v= in index.html.
-  var WORKER_URL = "worker.js?v=8";
+  var WORKER_URL = "worker.js?v=9";
   var worker = new Worker(WORKER_URL);
   var nextId = 0;
   var pending = {};
@@ -259,7 +266,7 @@
         years: pts.years, hist: pts.hist, hasYears: pts.hasYears, boxes: pts.boxes, chunk: pts.chunk,
         firstYear: null,
         // The sector filter's view of it, see filterData(): all of it here.
-        histAll: pts.hist, nView: pts.n, view: null, setores: null,
+        histAll: pts.hist, nView: pts.n, view: null, setores: null, especies: null,
       };
       remember(uf, data);
       levelsFor[pts.id] = uf;
@@ -586,8 +593,8 @@
 
       refresh: function () { map.triggerRepaint(); },
 
-      // The sector filter changed d.view: drop its buffer, the next draw
-      // uploads the new one (one per place, never one per sector).
+      // The filters changed d.view: drop its buffer, the next draw uploads
+      // the new one (one per place, never one per filter).
       refilter: function (uf) {
         var buf = buffers.get(uf + ":yf");
         if (buf) {
@@ -1049,51 +1056,64 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Sector filter
+  // Filters
 
-  // null shows every point; 0..20 only the addresses holding at least one
-  // establishment in that CNAE section. A place's sections come in a file of
-  // their own (<uf>.setores.bin.gz), fetched the first time it is filtered,
-  // from a second worker so it never aborts a point download.
-  var sector = null;
-  var setorWorker = null, setorNext = 0, setorPending = {};
+  // Two filters, both on at once when both are set. sector: null, or 0..20
+  // for the addresses holding at least one establishment in that CNAE
+  // section. kind: null, or 0..7 for the addresses whose ~11 m around holds a
+  // CNEFE address of kind k+1 (what the census saw there: home, school,
+  // health, ...). Each comes in a file of its own per place
+  // (<uf>.setores.bin.gz, <uf>.especies.bin.gz), fetched the first time the
+  // place is filtered by it, from a second worker so it never aborts a point
+  // download.
+  var sector = null, kind = null;
+  var filtroWorker = null, filtroNext = 0, filtroPending = {};
 
-  function fetchSetores(uf) {
-    if (!setorWorker) {
-      setorWorker = new Worker(WORKER_URL);
-      setorWorker.onmessage = function (e) {
-        var p = setorPending[e.data.id];
+  function fetchFiltro(uf, file) {
+    if (!filtroWorker) {
+      filtroWorker = new Worker(WORKER_URL);
+      filtroWorker.onmessage = function (e) {
+        var p = filtroPending[e.data.id];
         if (!p) return;
-        delete setorPending[e.data.id];
+        delete filtroPending[e.data.id];
         if (e.data.ok) p.resolve(e.data);
         else p.reject(new Error(e.data.error));
       };
     }
-    var id = ++setorNext;
-    var url = new URL("data/" + uf.toLowerCase() + ".setores.bin.gz", location.href).href;
+    var id = ++filtroNext;
+    var url = new URL("data/" + uf.toLowerCase() + "." + file + ".bin.gz", location.href).href;
     return new Promise(function (resolve, reject) {
-      setorPending[id] = { resolve: resolve, reject: reject };
-      setorWorker.postMessage({ id: id, url: url, kind: "setores" });
+      filtroPending[id] = { resolve: resolve, reject: reject };
+      filtroWorker.postMessage({ id: id, url: url, kind: "filtro" });
     });
   }
 
   function hasSectors(uf) { return !!(meta[uf] && meta[uf].setores); }
+  function hasKinds(uf) { return !!(meta[uf] && meta[uf].especies); }
 
-  // d.view: d's years with 255 for every point out of the sector (the layer
-  // draws from it, and 255 is a year the timeline never reaches); d.hist and
-  // d.nView: the timeline's histogram and point count, sector only.
+  // d.view: d's years with 255 for every point the filters leave out (the
+  // layer draws from it, and 255 is a year the timeline never reaches); d.hist
+  // and d.nView: the timeline's histogram and point count, filtered.
   function filterData(d) {
     var was = d.view;
+    var bySector = sector !== null && d.setores, byKind = kind !== null && d.especies;
     d.firstYear = null;
-    if (sector === null || !d.setores) {
+    if (!bySector && !byKind) {
       d.view = null;
       d.hist = d.histAll;
       d.nView = d.n;
     } else {
-      var code = d.setores.code, multi = d.setores.multi, bit = 1 << sector;
+      var code = bySector ? d.setores.code : null, multi = bySector ? d.setores.multi : null;
+      var kinds = byKind ? d.especies.mask : null;
+      var bit = 1 << sector, kbit = 1 << kind;
       var view = new Uint8Array(d.n), hist = new Uint32Array(256), shown = 0, j = 0;
       for (var i = 0; i < d.n; i++) {
-        var c = code[i], on = c === 255 ? (multi[j++] & bit) !== 0 : c === sector;
+        var on = true;
+        if (code) {
+          var c = code[i];
+          on = c === 255 ? (multi[j++] & bit) !== 0 : c === sector;
+        }
+        if (on && kinds) on = (kinds[i] & kbit) !== 0;
         if (on) { view[i] = d.years[i]; hist[d.years[i]]++; shown++; } else view[i] = 255;
       }
       d.view = view;
@@ -1103,35 +1123,47 @@
     if ((was || d.view) && points) points.refilter(d.uf);
   }
 
-  // Resolves once d is filtered for the current sector, its sections fetched
-  // if need be. A place without a sections file (an older deploy) just shows
-  // everything.
-  function ensureSector(d) {
-    if (sector === null || d.setores || !hasSectors(d.uf)) {
-      filterData(d);
-      return Promise.resolve();
-    }
-    if (!d.setoresLoading) {
-      d.setoresLoading = fetchSetores(d.uf).then(function (s) {
-        if (s.n !== d.n) throw new Error("setores de " + d.uf + " não batem com os pontos");
-        d.setores = s;
-      }).catch(function (err) { console.error(err); });
-    }
-    return d.setoresLoading.then(function () { filterData(d); });
+  // What d still has to fetch for the filters set now.
+  function missing(d) {
+    var need = [];
+    if (sector !== null && !d.setores && hasSectors(d.uf)) need.push("setores");
+    if (kind !== null && !d.especies && hasKinds(d.uf)) need.push("especies");
+    return need;
   }
 
-  function setSector(k) {
-    sector = k;
-    $("sector").value = k === null ? "" : String(k);
+  // Resolves once d is filtered, its filter files fetched if need be. A place
+  // without them (an older deploy) just shows everything.
+  function ensureFilter(d) {
+    d.filtroLoading = d.filtroLoading || {};
+    return Promise.all(missing(d).map(function (file) {
+      if (!d.filtroLoading[file]) {
+        d.filtroLoading[file] = fetchFiltro(d.uf, file).then(function (r) {
+          if (r.n !== d.n) throw new Error(file + " de " + d.uf + " não batem com os pontos");
+          d[file] = r;
+        }).catch(function (err) { console.error(err); });
+      }
+      return d.filtroLoading[file];
+    })).then(function () { filterData(d); });
+  }
+
+  function filterLabel() {
+    return "separando " + (sector !== null ? SECTORS[sector] : KINDS[kind]).toLowerCase();
+  }
+
+  function setFilter(nextSector, nextKind) {
+    sector = nextSector;
+    kind = nextKind;
+    $("sector").value = sector === null ? "" : String(sector);
+    $("kind").value = kind === null ? "" : String(kind);
     if (requested) setReadout(requested);
     var d = current && cache.get(current);
     if (!d) return;
-    var fetching = sector !== null && !d.setores && hasSectors(d.uf);
-    if (fetching) showProgress("separando " + SECTORS[sector].toLowerCase(), null);
-    ensureSector(d).then(function () {
+    var fetching = missing(d).length > 0;
+    if (fetching) showProgress(filterLabel(), null);
+    ensureFilter(d).then(function () {
       if (fetching) hideProgress();
-      // The other places kept in memory follow without fetching: a place
-      // filtered later fetches its own sections then.
+      // The other places kept in memory follow with what they have: a place
+      // filtered later fetches its own files then.
       cache.forEach(function (other) { if (other !== d) filterData(other); });
       refreshTimeline();
       countSoon();
@@ -1158,7 +1190,7 @@
     var x0 = sw.x - d.origin[0], x1 = ne.x - d.origin[0];
     var y0 = ne.y - d.origin[1], y1 = sw.y - d.origin[1];
     var cut = Math.min(Math.round(tl.shown), TL_MAX) - TL_MIN;
-    // The sector's view hides its outsiders with year 255, past any cut.
+    // The filtered view hides its outsiders with year 255, past any cut.
     var years = d.view || (d.hasYears && cut < TL_MAX - TL_MIN ? d.years : null);
     var P = d.positions, B = d.boxes, C = d.chunk, n = d.n, total = 0;
     for (var c = 0; c * C < n; c++) {
@@ -1186,12 +1218,20 @@
   function setReadout(uf) {
     var info = meta[uf];
     $("place").textContent = NAMES[uf] || uf;
-    $("sector-box").hidden = !hasSectors(uf);
-    // Filtered, the figures are the sector's own.
-    var counts = sector !== null && hasSectors(uf)
-      ? info.setores[SECTOR_LETTERS[sector]]
-      : { geo: info.n_estab_geolocalizados, ativos: info.n_estab_ativos };
-    var share = counts.ativos ? counts.geo / counts.ativos : 0;
+    $("sector-box").hidden = !hasSectors(uf) && !hasKinds(uf);
+    $("sector").hidden = !hasSectors(uf);
+    $("kind").hidden = !hasKinds(uf);
+    // Filtered, the figures are the filter's own. By sector they set against
+    // the sector's active establishments; by address kind there are no
+    // active ones to set against (only mapped ones have a place), so the note
+    // gives the share of the mapped ones instead.
+    var bySector = sector !== null && hasSectors(uf), byKind = kind !== null && hasKinds(uf);
+    var all = { geo: info.n_estab_geolocalizados, ativos: info.n_estab_ativos };
+    var sec = bySector ? info.setores[SECTOR_LETTERS[sector]] : all;
+    var geo = byKind ? (bySector ? info.cruzado[sector][kind] : info.especies[kind]) : sec.geo;
+    var note = byKind
+      ? Math.round(sec.geo ? (geo / sec.geo) * 100 : 0) + "% dos " + fmt(sec.geo) + (bySector ? " do setor" : "") + " no mapa"
+      : Math.round(sec.ativos ? (sec.geo / sec.ativos) * 100 : 0) + "% dos " + fmt(sec.ativos) + " ativos mapeados";
     function row(label, value, cls, id) {
       return '<div class="fact' + (cls ? " " + cls : "") + '"><span>' + label + "</span><b" +
         (id ? ' id="' + id + '"' : "") + ">" + value + "</b></div>";
@@ -1200,8 +1240,8 @@
     // a plain note under the count, rules between them. What the screen
     // frames comes last and is filled in by countOnScreen().
     $("count").innerHTML =
-      row("estabelecimentos", fmt(counts.geo)) + "<hr>" +
-      '<div class="note">' + Math.round(share * 100) + "% dos " + fmt(counts.ativos) + " ativos mapeados</div>" +
+      row("estabelecimentos", fmt(geo)) + "<hr>" +
+      '<div class="note">' + note + "</div>" +
       (uf === "BR" ? row("endereços na amostra", fmt(info.n_points)) : "") + "<hr>" +
       // A point is an address: establishments sharing one are a single dot,
       // so this counts addresses, not establishments.
@@ -1251,8 +1291,8 @@
       return data;
     });
     var sorting = loading.then(function (data) {
-      if (sector !== null && hasSectors(uf) && !data.setores) step("separando " + SECTORS[sector].toLowerCase(), null);
-      return ensureSector(data);
+      if (missing(data).length) step(filterLabel(), null);
+      return ensureFilter(data);
     });
     Promise.all([sorting, landing])
       .then(function () {
@@ -1287,17 +1327,21 @@
     var c = map.getContainer();
     return Math.log2(Math.min(c.clientWidth, c.clientHeight) / REF_SIDE);
   }
-  // The place may carry the sector filter: #sp~g/... is São Paulo, commerce
-  // only (G). It rides on the first field so the numbers after it keep their
-  // places.
+  // The place may carry the filters: #sp~g~5/... is São Paulo, commerce (G)
+  // around health establishments (CNEFE kind 5). They ride on the first field
+  // so the numbers after it keep their places.
   function hashUf() {
     var uf = location.hash.replace("#", "").split("/")[0].split("~")[0].toUpperCase();
     return meta[uf] ? uf : "BR";
   }
-  function hashSector() {
-    var letter = (location.hash.replace("#", "").split("/")[0].split("~")[1] || "").toUpperCase();
-    var k = letter.length === 1 ? SECTOR_LETTERS.indexOf(letter) : -1;
-    return k >= 0 ? k : null;
+  function hashFilters() {
+    var out = { sector: null, kind: null };
+    location.hash.replace("#", "").split("/")[0].split("~").slice(1).forEach(function (t) {
+      t = t.toUpperCase();
+      if (/^[1-8]$/.test(t)) out.kind = +t - 1;
+      else if (t.length === 1 && SECTOR_LETTERS.indexOf(t) >= 0) out.sector = SECTOR_LETTERS.indexOf(t);
+    });
+    return out;
   }
 
   function fromHash() {
@@ -1328,6 +1372,7 @@
     if (!requested) return;
     var c = map.getCenter();
     var hash = "#" + requested.toLowerCase() + (sector !== null ? "~" + SECTOR_LETTERS[sector].toLowerCase() : "") +
+      (kind !== null ? "~" + (kind + 1) : "") +
       "/" + (map.getZoom() - screenShift()).toFixed(2) + "/" +
       c.lat.toFixed(5) + "/" + c.lng.toFixed(5) + "/" +
       Math.round(map.getBearing()) + "/" + Math.round(map.getPitch()) + "/" +
@@ -1355,8 +1400,8 @@
   // slider values hold while the camera stays at the shared zoom; the first
   // zoom away hands the sliders back to the zoom curve.
   function showView(h) {
-    var s = hashSector();
-    if (s !== sector) setSector(s);
+    var f = hashFilters();
+    if (f.sector !== sector || f.kind !== kind) setFilter(f.sector, f.kind);
     if (h.view) setTilted(h.view.pitch > 0);
     sharedKnobs = h.view && h.knobs ? Object.assign({ zoom: h.view.zoom }, h.knobs) : null;
     if (h.twinkle !== null) setTwinkle(h.twinkle);
@@ -1471,8 +1516,17 @@
       o.textContent = name;
       $("sector").appendChild(o);
     });
+    KINDS.forEach(function (name, k) {
+      var o = document.createElement("option");
+      o.value = String(k);
+      o.textContent = name;
+      $("kind").appendChild(o);
+    });
     $("sector").addEventListener("change", function () {
-      setSector(this.value === "" ? null : +this.value);
+      setFilter(this.value === "" ? null : +this.value, kind);
+    });
+    $("kind").addEventListener("change", function () {
+      setFilter(sector, this.value === "" ? null : +this.value);
     });
 
     buildTimeline();

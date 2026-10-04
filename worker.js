@@ -18,7 +18,7 @@ var current = null;
 self.onmessage = function (e) {
   var id = e.data.id;
   var url = e.data.url;
-  if (e.data.kind === "setores") { loadSetores(id, url); return; }
+  if (e.data.kind === "filtro") { loadFiltro(id, url); return; }
   if (current) current.abort();
   var controller = new AbortController();
   current = controller;
@@ -82,13 +82,16 @@ self.onmessage = function (e) {
     });
 };
 
-// A place's CNAE sections, fetched once someone filters by sector (the page
-// runs a second worker for it, so this never aborts a point download). Layout,
-// see scripts/repack.py (write_setores): "BLS1", u32 n, u32 m, then n bytes
-// (section 0..20, or 255 for an address with several) and three planes of m
-// bytes holding those m addresses' masks. Answers code (n bytes) and multi
-// (m u32 masks, in the same order as the 255s in code).
-function loadSetores(id, url) {
+// A place's filter data, fetched once someone filters by it (the page runs a
+// second worker for these, so they never abort a point download). Layouts,
+// see scripts/repack.py:
+//   "BLS1", CNAE sections: u32 n, u32 m, then n bytes (section 0..20, or 255
+//     for an address with several) and three planes of m bytes holding those
+//     m addresses' masks. Answers code (n bytes) and multi (m u32 masks, in
+//     the order of the 255s in code).
+//   "BLE1", CNEFE address kinds: u32 n, then n bytes of masks (bit k = kind
+//     k+1). Answers mask.
+function loadFiltro(id, url) {
   fetch(url)
     .then(function (res) {
       if (!res.ok) throw new Error("fetch " + url + " -> " + res.status);
@@ -96,9 +99,16 @@ function loadSetores(id, url) {
       return new Response(res.body.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
     })
     .then(function (buf) {
-      var head = new DataView(buf, 0, 12);
+      var head = new DataView(buf, 0, 8);
       var magic = String.fromCharCode(head.getUint8(0), head.getUint8(1), head.getUint8(2), head.getUint8(3));
-      if (magic !== "BLS1") throw new Error("formato de setores desconhecido");
+      if (magic === "BLE1") {
+        var nk = head.getUint32(4, true);
+        var mask = new Uint8Array(buf.slice(8, 8 + nk));
+        self.postMessage({ id: id, ok: true, n: nk, mask: mask }, [mask.buffer]);
+        return;
+      }
+      if (magic !== "BLS1") throw new Error("formato de filtro desconhecido");
+      head = new DataView(buf, 0, 12);
       var n = head.getUint32(4, true), m = head.getUint32(8, true);
       var code = new Uint8Array(buf.slice(12, 12 + n));
       var planes = new Uint8Array(buf, 12 + n, 3 * m);

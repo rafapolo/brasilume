@@ -162,8 +162,14 @@ button {
   text-wrap: balance;
 }
 
-/* The sector filter: a quiet select in the panel's own glass, a caret drawn
-   in --dim. The options take the opaque ink (their list is the system's). */
+/* The filters: quiet selects in the panel's own glass, a caret drawn in
+   --dim. The options take the opaque ink (their list is the system's). */
+.sector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .sector select {
   display: block;
   width: 100%;
