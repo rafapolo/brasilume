@@ -1256,7 +1256,7 @@
     $("count").innerHTML =
       row("estabelecimentos", fmt(geo), "main") + "<hr>" +
       '<div class="note">' + note + "</div>" +
-      (uf === "BR" ? row("endereços na amostra", fmt(info.n_points)) : "") + "<hr>" +
+      (uf === "BR" ? "<hr>" + row("endereços na amostra", fmt(info.n_points)) : "") + "<hr>" +
       // A point is an address: establishments sharing one are a single dot,
       // so this counts addresses, not establishments.
       row("visíveis na tela", "–", "now", "onscreen");

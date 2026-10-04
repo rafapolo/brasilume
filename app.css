@@ -181,8 +181,11 @@ button {
 .sector {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
+
+/* One filter without its file: no rule between the two either. */
+.filter[hidden] + hr, .sector hr:has(+ .filter[hidden]) { display: none; }
 
 /* Each filter under a line saying where its classes come from. */
 .filter {
