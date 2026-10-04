@@ -1645,7 +1645,7 @@
   function setTilted(on) {
     tilted = on;
     $("tilt").setAttribute("aria-pressed", on ? "true" : "false");
-    $("tilt").textContent = on ? "inclinada" : "de cima";
+    $("tilt").textContent = on ? "inclinado" : "de cima";
   }
 
   // Takes fromHash()'s result and hands back the camera for select(). Shared

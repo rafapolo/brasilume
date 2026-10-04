@@ -28,13 +28,17 @@
   --lamp-raw: 237, 227, 209;
   --soft: #cfc5b4;           /* running text */
   --dim: #8f8473;            /* labels, secondary text */
-  --ember: #d9a99f;          /* accent: the place, links, lit bars; the dot color lifted to read as text */
+  --ember: #d9a99f;          /* accent: links, lit bars; the dot color lifted to read as text */
   --ember-raw: 139, 87, 79;  /* the dot color itself, kepler reference */
   --spark-raw: 255, 214, 170; /* the hot core of every glow */
   --hair: rgba(var(--lamp-raw), 0.14);    /* rules and borders */
   --hair-hi: rgba(var(--lamp-raw), 0.32); /* hover and open borders */
   /* The glow of one lit lamp: the wordmark's "l" and the loading dot. */
   --halo: 0 0 6px rgba(var(--spark-raw), 0.8), 0 0 22px rgba(var(--ember-raw), 0.9), 0 0 48px rgba(var(--ember-raw), 0.7);
+  /* The faint glow of the type in the dots' own color: the wordmark. */
+  --aura: 0 0 8px rgba(var(--ember-raw), 0.9), 0 0 22px rgba(var(--ember-raw), 0.65), 0 0 44px rgba(var(--ember-raw), 0.4);
+  /* The same turned down, for the place and the year. */
+  --aura-low: 0 0 8px rgba(var(--ember-raw), 0.6), 0 0 22px rgba(var(--ember-raw), 0.35);
   /* A lit thing's smaller glow: active tiles, the loading wire. */
   --lit: 0 0 8px rgba(var(--spark-raw), 0.8), 0 0 24px rgba(var(--ember-raw), 0.9);
   --display: "Bricolage Grotesque", system-ui, sans-serif;
@@ -125,7 +129,7 @@ button {
   letter-spacing: -0.035em;
   color: var(--dim);
   /* The whole word glows faintly in the dots' own color. */
-  text-shadow: 0 0 8px rgba(var(--ember-raw), 0.9), 0 0 22px rgba(var(--ember-raw), 0.65), 0 0 44px rgba(var(--ember-raw), 0.4);
+  text-shadow: var(--aura);
 }
 
 /* The "il" of brasIL / ILuminado is the one lit thing in the type. */
@@ -161,10 +165,10 @@ button {
   border-top: 1px solid var(--hair);
 }
 
-/* The place takes the dots' color, lifted to read as text (--ember): the
-   one warm name among the off-white figures. */
+/* The place takes the wordmark's color and its glow: the one lit name
+   among the off-white figures. */
 .place {
-  color: var(--ember);
+  color: var(--dim);
   font-weight: 800;
   --place: clamp(22px, 2.2vw, 26px);
   font-size: var(--place);
@@ -173,12 +177,12 @@ button {
      place: app.js (fitPlace) shrinks the long names to fit. */
   line-height: calc(var(--place) * 1.1);
   white-space: nowrap;
-  overflow: hidden;
-  /* A faint glow in the dots' own color, the wordmark's turned down. The
-     padding, taken back by the margin, is room for it inside the clip. */
-  text-shadow: 0 0 6px rgba(var(--spark-raw), 0.3), 0 0 14px rgba(var(--ember-raw), 0.9), 0 0 22px rgba(var(--ember-raw), 0.55);
-  padding: 14px 16px;
-  margin: -14px -16px;
+  /* Clipped sideways only, so the glow is free above and below; the
+     padding, taken back by the margin, is room for it at the sides. */
+  overflow-x: clip;
+  text-shadow: var(--aura-low);
+  padding: 0 16px;
+  margin: 0 -16px;
 }
 
 /* The filters' panel: a header that says which one is on, the two selects
@@ -837,8 +841,8 @@ button {
   line-height: 1;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
-  color: var(--lamp);
-  text-shadow: 0 0 18px rgba(var(--ember-raw), 0.8);
+  color: var(--dim);
+  text-shadow: var(--aura-low);
 }
 
 .tl-sub {
