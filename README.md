@@ -44,6 +44,15 @@ em três planos de `m` bytes, as máscaras desses `m` pontos, na mesma ordem dos
 principal. `meta.json` traz por UF, em `setores`, os ativos e os geolocalizados de cada seção. O setor
 vai no link junto com o lugar: `#sp~g` é São Paulo, só comércio.
 
+O segundo seletor filtra pela espécie do endereço no CNEFE (o que o recenseador viu no local em
+2022: domicílio particular, domicílio coletivo, agropecuário, ensino, saúde, outras finalidades,
+em construção, religioso). O extrator junta, por ponto, as espécies dos endereços do CNEFE na
+mesma célula de ~11 m (`RAW4`), e `repack.py` grava `data/<uf>.especies.bin.gz`: `BLE1`, `n` e `n`
+bytes de máscara (bit k = espécie k+1). Em `meta.json`, `especies` traz os estabelecimentos por
+espécie e `cruzado` a tabela seção × espécie, para os números do painel com os dois filtros. Os
+dois filtros combinam, e a espécie vai no link como número: `#sp~g~5` é comércio junto a
+estabelecimentos de saúde.
+
 ### Linha do tempo
 
 O controle na base da tela esconde os pontos abertos depois do ano escolhido (1900 a 2025; mude
