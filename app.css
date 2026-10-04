@@ -1,14 +1,42 @@
+/* Self-hosted, latin subset (Portuguese needs nothing past it), both
+   variable: one file holds every weight. SIL Open Font License, in fonts/. */
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url(fonts/bricolage-grotesque-latin.woff2) format("woff2");
+}
+
+@font-face {
+  font-family: "Martian Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url(fonts/martian-mono-latin.woff2) format("woff2");
+}
+
 :root {
-  --night: #000000;
-  --lamp: #ede3d1;        /* warm off-white, the color dots saturate toward */
-  --dim: #8f8473;
-  --ember: #d9a99f;       /* the dot color lifted to read as text */
-  --ember-raw: 139, 87, 79; /* the dot color itself, kepler reference */
-  --glass: rgba(8, 6, 5, 0.8);
-  --hair: rgba(237, 227, 209, 0.14);
-  --hair-hi: var(--hair-hi); /* hover and open borders */
+  /* Palette: a warm night lit by one hue, the dots' own. Every color on the
+     page comes from here; app.js reads the histogram's from it too.
+     -raw values are bare channels, for rgba() with an alpha. */
+  --night: #000000;          /* the map */
+  --ink: #0b0908;            /* opaque surfaces: dialog, sheets, error */
+  --ink-raw: 11, 9, 8;
+  --glass: rgba(var(--ink-raw), 0.6); /* every floating panel and chip */
+  --lamp: #ede3d1;           /* primary text and figures, active states; what dots saturate toward */
+  --lamp-raw: 237, 227, 209;
+  --soft: #cfc5b4;           /* running text */
+  --dim: #8f8473;            /* labels, secondary text */
+  --ember: #d9a99f;          /* accent: the place, links, lit bars; the dot color lifted to read as text */
+  --ember-raw: 139, 87, 79;  /* the dot color itself, kepler reference */
+  --spark-raw: 255, 214, 170; /* the hot core of every glow */
+  --hair: rgba(var(--lamp-raw), 0.14);    /* rules and borders */
+  --hair-hi: rgba(var(--lamp-raw), 0.32); /* hover and open borders */
   /* The glow of one lit lamp: the wordmark's "l" and the loading dot. */
-  --halo: 0 0 6px rgba(255, 214, 170, 0.8), 0 0 22px rgba(var(--ember-raw), 0.9), 0 0 48px rgba(var(--ember-raw), 0.7);
+  --halo: 0 0 6px rgba(var(--spark-raw), 0.8), 0 0 22px rgba(var(--ember-raw), 0.9), 0 0 48px rgba(var(--ember-raw), 0.7);
+  /* A lit thing's smaller glow: active tiles, the loading wire. */
+  --lit: 0 0 8px rgba(var(--spark-raw), 0.8), 0 0 24px rgba(var(--ember-raw), 0.9);
   --display: "Bricolage Grotesque", system-ui, sans-serif;
   --mono: "Martian Mono", ui-monospace, monospace;
   --gutter: 20px;
@@ -38,7 +66,7 @@ html, body {
   text-size-adjust: 100%;
 }
 
-#map { position: absolute; inset: 0; }
+#map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
 
 /* Basemap is a plain black background; this only softens MapLibre's canvas
    in case a style layer ever sneaks in. */
@@ -63,13 +91,13 @@ button {
   background: var(--glass);
   border: 1px solid var(--hair);
   border-radius: 4px;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 /* ---------- rail ---------- */
 
-/* Intro, states and the hover still, top to bottom. */
+/* Intro, readout, states and the hover still, top to bottom. */
 .rail {
   position: absolute;
   top: var(--top);
@@ -87,10 +115,7 @@ button {
 
 /* ---------- masthead ---------- */
 
-.masthead {
-  padding: 14px 16px;
-  pointer-events: none;
-}
+.masthead { padding: 14px 16px; text-align: center; }
 
 .wordmark {
   margin: 0;
@@ -99,6 +124,8 @@ button {
   line-height: 0.95;
   letter-spacing: -0.035em;
   color: var(--dim);
+  /* The whole word glows faintly in the dots' own color. */
+  text-shadow: 0 0 8px rgba(var(--ember-raw), 0.9), 0 0 22px rgba(var(--ember-raw), 0.65), 0 0 44px rgba(var(--ember-raw), 0.4);
 }
 
 /* The "il" of brasIL / ILuminado is the one lit thing in the type. */
@@ -110,36 +137,67 @@ button {
 
 .dek {
   margin: 10px 0 0;
-  max-width: 30ch;
   font-size: 14px;
   line-height: 1.4;
   color: var(--dim);
+  text-wrap: balance;
 }
 
+/* The place and its numbers: a panel of their own under the intro. */
 .readout {
-  margin-top: 18px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 10px;
+  padding: 12px 16px 14px;
 }
 
+/* The place takes the dots' color, lifted to read as text (--ember): the
+   one warm name among the off-white figures. */
 .place {
+  color: var(--ember);
   font-weight: 800;
-  font-size: clamp(22px, 2.6vw, 30px);
+  font-size: clamp(22px, 2.2vw, 26px);
+  line-height: 1.1;
   letter-spacing: -0.02em;
+  text-wrap: balance;
 }
 
-.count {
-  font-family: var(--mono);
-  font-weight: 300;
-  font-size: 11px;
-  line-height: 1.6;
+/* The place's facts: label left, figure right, one a row, so the eye runs
+   down the figures. Display face, figures lined up. */
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.fact {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   color: var(--dim);
 }
 
-.count b {
-  font-weight: 400;
+.fact b {
+  flex: none;
+  font-weight: 500;
   color: var(--lamp);
+  font-variant-numeric: tabular-nums;
+}
+
+.facts .note {
+  font-size: 12px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.facts hr {
+  width: 100%;
+  margin: 2px 0;
+  border: 0;
+  border-top: 1px solid var(--hair);
 }
 
 .progress {
@@ -194,7 +252,7 @@ button {
   height: 100%;
   width: 0;
   background: var(--lamp);
-  box-shadow: 0 0 6px rgba(255, 214, 170, 0.8);
+  box-shadow: 0 0 6px rgba(var(--spark-raw), 0.8);
   transition: width 80ms linear;
 }
 
@@ -246,13 +304,13 @@ button {
   display: grid;
   place-items: center;
   padding: 0;
-  border: 1px solid transparent;
+  border: 1px solid rgba(var(--lamp-raw), 0.07); /* barely there: just edges the dim tiles */
   border-radius: 2px;
   cursor: pointer;
   font-family: var(--mono);
   font-size: 9.5px;
   letter-spacing: 0.02em;
-  color: rgba(237, 227, 209, calc(0.45 + var(--glow) * 0.55));
+  color: rgba(var(--lamp-raw), calc(0.45 + var(--glow) * 0.55));
   background: rgba(var(--ember-raw), calc(0.12 + var(--glow) * 0.75));
   box-shadow: 0 0 calc(var(--glow) * 14px) rgba(var(--ember-raw), calc(var(--glow) * 0.8));
   transition: background-color 160ms, border-color 160ms, color 160ms;
@@ -268,7 +326,7 @@ button {
 .tile[aria-pressed="true"] {
   background: var(--lamp);
   color: var(--night);
-  box-shadow: 0 0 8px rgba(255, 214, 170, 0.8), 0 0 24px rgba(var(--ember-raw), 0.9);
+  box-shadow: var(--lit);
 }
 
 .tile:disabled {
@@ -359,7 +417,7 @@ button {
   border-radius: 14px;
   background: var(--glass);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 9px;
   letter-spacing: 0.04em;
   cursor: pointer;
   backdrop-filter: blur(6px);
@@ -392,10 +450,60 @@ button {
 
 .knob output, .light-foot output { color: var(--lamp); font-variant-numeric: tabular-nums; }
 
+/* The sliders drawn in the palette: a hairline track lit in ember up to a
+   small lit thumb. --fill (set from app.js) is the lit part, for WebKit;
+   Gecko has ::-moz-range-progress. The pseudo-elements stay in twin rules,
+   since a browser drops a whole rule over a selector it does not know. */
 .knob input[type="range"] {
+  --fill: 0.5;
+  display: block;
   width: 100%;
-  margin: 6px 0 0;
-  accent-color: rgb(var(--ember-raw));
+  height: 14px;
+  margin: 4px 0 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.knob input[type="range"]:disabled { opacity: 0.4; cursor: default; }
+
+.knob input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(to right, var(--ember) calc(var(--fill) * 100%), var(--hair) 0);
+}
+
+.knob input[type="range"]::-moz-range-track {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--hair);
+}
+
+.knob input[type="range"]::-moz-range-progress {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ember);
+}
+
+.knob input[type="range"]::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  margin-top: -5px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--lamp);
+  box-shadow: 0 0 6px rgba(var(--spark-raw), 0.8), 0 0 14px rgba(var(--ember-raw), 0.9);
+  -webkit-appearance: none;
+}
+
+.knob input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--lamp);
+  box-shadow: 0 0 6px rgba(var(--spark-raw), 0.8), 0 0 14px rgba(var(--ember-raw), 0.9);
 }
 
 .light-foot {
@@ -418,7 +526,7 @@ button {
   --playhead:
     radial-gradient(circle at 50% calc(100% - 4px), var(--lamp) 0 3.5px, transparent 4.5px),
     linear-gradient(var(--lamp), var(--lamp)) center / 2px 100% no-repeat;
-  --playhead-glow: drop-shadow(0 0 5px rgba(255, 214, 170, 0.9)) drop-shadow(0 0 14px rgba(var(--ember-raw), 0.9));
+  --playhead-glow: drop-shadow(0 0 5px rgba(var(--spark-raw), 0.9)) drop-shadow(0 0 14px rgba(var(--ember-raw), 0.9));
   position: absolute;
   bottom: var(--bottom);
   left: 0;
@@ -590,13 +698,13 @@ button {
   max-height: calc(100vh - 2 * var(--gutter));
   max-height: calc(100dvh - 2 * var(--gutter));
   padding: 28px 28px 22px;
-  background: #0b0908;
+  background: var(--ink);
   color: var(--lamp);
   border: 1px solid var(--hair);
   border-radius: 4px;
 }
 
-.about::backdrop { background: rgba(0, 0, 0, 0.6); }
+.about::backdrop { background: rgba(var(--ink-raw), 0.7); }
 
 .about h2 {
   margin: 0 0 14px;
@@ -609,7 +717,7 @@ button {
   margin: 0 0 12px;
   font-size: 15px;
   line-height: 1.5;
-  color: #cfc5b4;
+  color: var(--soft);
 }
 
 .about em { color: var(--lamp); }
@@ -643,7 +751,7 @@ button {
   z-index: 20;
   max-width: calc(100vw - 2 * var(--gutter));
   padding: 14px 18px;
-  background: #0b0908;
+  background: var(--ink);
   border: 1px solid var(--ember);
   border-radius: 4px;
   font-family: var(--mono);
@@ -651,29 +759,11 @@ button {
   line-height: 1.6;
 }
 
-/* ---------- credit ---------- */
-
-.credit {
-  position: absolute;
-  right: var(--right);
-  bottom: var(--bottom);
-  z-index: 10;
-  font-family: var(--mono);
-  font-size: 9px;
-  color: var(--dim);
-  text-decoration: none;
-  opacity: 0.7;
-}
-
-@media (hover: hover) {
-  .credit:hover { color: var(--lamp); opacity: 1; }
-}
-
 /* Touch devices: the glass blur is recomputed every frame over a map that
    repaints all the time (the twinkle), which a phone GPU pays for in frame
    rate and battery. A darker glass reads the same without it. */
 @media (max-width: 640px), (pointer: coarse) {
-  :root { --glass: rgba(8, 6, 5, 0.86); }
+  :root { --glass: rgba(var(--ink-raw), 0.86); }
   .panel, .chip {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -684,7 +774,6 @@ button {
    line and the sliders fold behind luz, as on phones. */
 @media (min-width: 641px) and (max-height: 860px) {
   .dek { display: none; }
-  .readout { margin-top: 10px; }
   #light-toggle { display: block; }
   /* With luz the three chips outgrow the panel's width: one row, flush right. */
   .light { width: auto; align-items: flex-end; }
@@ -698,22 +787,20 @@ button {
 @media (max-width: 640px) {
   :root { --gutter: 16px; --dock: 48px; }
 
-  /* The column dissolves: the masthead keeps the top, the chips and the
-     credit the bottom right, and the panels become sheets over the dock. */
-  .rail, .light { display: contents; }
-
-  .masthead {
-    position: absolute;
-    top: var(--top);
-    left: var(--left);
-    z-index: 10;
-    max-width: calc(100vw - 2 * var(--gutter));
+  /* The column keeps only the intro and the readout, top left; the chips go
+     bottom right, and the panels become sheets over the dock. */
+  .rail {
+    bottom: auto;
+    width: min(240px, calc(100vw - 2 * var(--gutter)));
+    gap: 6px;
   }
+  .light { display: contents; }
 
+  .masthead { padding: 10px 14px; }
   .dek { display: none; }
-  .readout { margin-top: 10px; }
+  .readout { padding: 10px 14px 12px; }
 
-  /* Stacked over the credit, clear of the dock's row. */
+  /* Stacked over the dock's row, on the right. */
   .chips {
     position: absolute;
     right: var(--right);
@@ -737,15 +824,16 @@ button {
 
   /* Sheets: opaque, sliding up from under the dock, one open at a time.
      visibility keeps their layout (the timeline canvas measures itself). */
+  /* fixed: the picker sits inside the rail, which is positioned. */
   .picker, .light-panel, .timeline {
-    position: absolute;
+    position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     z-index: 12;
     width: auto;
     margin: 0;
-    background: #0b0908;
+    background: var(--ink);
     border-width: 1px 0 0;
     border-radius: 8px 8px 0 0;
     padding: 16px var(--gutter) calc(var(--bottom) + var(--dock));

@@ -31,7 +31,10 @@ self.onmessage = function (e) {
       // Older browsers (iOS < 16.4, Firefox < 113) have no DecompressionStream,
       // some no TransformStream: read the body whole and gunzip it in JS.
       if (typeof DecompressionStream === "undefined" || typeof TransformStream === "undefined" || !res.body) {
-        return res.arrayBuffer().then(gunzip);
+        return res.arrayBuffer().then(function (buf) {
+          self.postMessage({ id: id, progress: 1 });
+          return gunzip(buf);
+        });
       }
       // Count compressed bytes as they arrive, before decompression, so the
       // progress fraction lines up with Content-Length.
@@ -44,6 +47,11 @@ self.onmessage = function (e) {
             self.postMessage({ id: id, progress: loaded / total });
           }
           ctl.enqueue(chunk);
+        },
+        // The throttle can swallow the last chunk: say "downloaded" for sure,
+        // so the page can move on to the decoding step.
+        flush: function () {
+          self.postMessage({ id: id, progress: 1 });
         },
       });
       var stream = res.body.pipeThrough(counter).pipeThrough(new DecompressionStream("gzip"));

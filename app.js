@@ -6,7 +6,15 @@
   // map was made with (color [139,87,79], radius 3). kepler scales its radius
   // before drawing; 1/3 matches its rendered dot size, measured against the
   // reference screenshots. Radius is in CSS pixels.
-  var DOT_COLOR = [139, 87, 79];
+  // The palette lives in app.css (:root); the dots and the histogram read it
+  // from there, so one place sets every color. The stylesheet comes before
+  // this script, so it is applied by now.
+  var palette = getComputedStyle(document.documentElement);
+  function token(name, fallback) { return palette.getPropertyValue(name).trim() || fallback; }
+  var DOT_COLOR = token("--ember-raw", "139, 87, 79").split(",").map(Number);
+  var LIT_BAR = token("--ember", "#d9a99f");
+  // Unlit bars are the dot color itself, dimmed: a light switched off, not a gray.
+  var DIM_BAR = "rgb(" + DOT_COLOR.join(",") + ")";
   var BASE_RADIUS = 3 / 3;
   var TILT = 50;
   var TILT_ZOOM_OUT = 0.45;
@@ -91,6 +99,22 @@
     RS: [1, 7], SC: [2, 7],
   };
 
+  // [lng, lat] of each state capital, where a first visit lands when the
+  // visitor's IP places them in that state.
+  var CAPITALS = {
+    AC: [-67.8243, -9.9747], AL: [-35.735, -9.6658], AP: [-51.0694, 0.0349],
+    AM: [-60.0217, -3.119], BA: [-38.5014, -12.9718], CE: [-38.5267, -3.7319],
+    DF: [-47.8825, -15.7942], ES: [-40.3377, -20.3155], GO: [-49.2643, -16.6869],
+    MA: [-44.3028, -2.5297], MT: [-56.0974, -15.6014], MS: [-54.6295, -20.4697],
+    MG: [-43.9378, -19.9208], PA: [-48.4902, -1.4558], PB: [-34.8631, -7.1195],
+    PR: [-49.2733, -25.4284], PE: [-34.877, -8.0476], PI: [-42.8034, -5.092],
+    RJ: [-43.1729, -22.9068], RN: [-35.2094, -5.7945], RS: [-51.2177, -30.0346],
+    RO: [-63.9004, -8.7612], RR: [-60.6758, 2.8235], SC: [-48.5482, -27.5954],
+    SP: [-46.6333, -23.5505], SE: [-37.0731, -10.9472], TO: [-48.3336, -10.1844],
+  };
+  var CAPITAL_ZOOM = 11; // on the REF_SIDE reference screen, like the URL
+  var GEO_TIMEOUT = 1500;
+
   var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   // Phones and tablets: less memory to keep decoded states in, and a fill
   // rate that a 3x screen would spend on pixels nobody can tell apart.
@@ -166,7 +190,7 @@
 
   // Versioned so a cached worker never pairs with a newer app.js (GitHub
   // Pages caches for 10 min). Bump together with the ?v= in index.html.
-  var worker = new Worker("worker.js?v=6");
+  var worker = new Worker("worker.js?v=7");
   var nextId = 0;
   var pending = {};
 
@@ -198,7 +222,9 @@
   function loadPoints(uf, onProgress) {
     if (cache.has(uf)) return Promise.resolve(cache.get(uf));
     if (inflight && inflight.uf === uf) {
+      // Started earlier (a hover, the boot): pick the bar up where it is.
       inflight.onProgress = onProgress;
+      if (onProgress && inflight.frac !== undefined) onProgress(inflight.frac);
       return inflight.promise;
     }
     // A new request supersedes any in flight (the worker aborts it).
@@ -210,7 +236,7 @@
       pending[id] = {
         resolve: resolve,
         reject: reject,
-        onProgress: function (f) { if (job.onProgress) job.onProgress(f); },
+        onProgress: function (f) { job.frac = f; if (job.onProgress) job.onProgress(f); },
       };
       worker.postMessage({ id: id, url: url });
     }).then(function (pts) {
@@ -232,8 +258,9 @@
   }
 
   // The loader stays up for the whole change of place, flight included, and
-  // fades out as the place's lights come on. frac null means nothing to
-  // download (the place is cached), so the bar sweeps instead of filling.
+  // fades out as the place's lights come on. The bar fills with the download
+  // only; frac null (cached, decoding, still flying) sweeps instead, so it
+  // never sits at 100% while there is still a wait.
   var progressTimer = 0;
 
   function showProgress(label, frac) {
@@ -573,6 +600,13 @@
   function setKnob(name, v) {
     $(name).value = v;
     $(name + "-out").textContent = (+v).toFixed(2);
+    paintKnob($(name));
+  }
+
+  // WebKit has no pseudo-element for the filled part of a range track: the
+  // CSS paints it from --fill, the thumb's place along the track, 0..1.
+  function paintKnob(el) {
+    el.style.setProperty("--fill", ((el.value - el.min) / (el.max - el.min)).toFixed(4));
   }
 
   // The sliders are ABSOLUTE readouts-and-controls, not trims: the zoom curve
@@ -662,7 +696,8 @@
 
   function padding() {
     var small = window.innerWidth <= 640;
-    if (small) return { top: 150, bottom: 150, left: 16, right: 16 };
+    // Phones: clear of the intro and readout stacked at the top.
+    if (small) return { top: document.querySelector(".rail").getBoundingClientRect().bottom + 16, bottom: 120, left: 16, right: 16 };
     // Keep the place clear of the panel column on the left and the sliders
     // on the right (0 wide while folded away on short screens).
     var rail = document.querySelector(".rail").getBoundingClientRect();
@@ -804,15 +839,19 @@
     for (i = 0; i < years; i++) {
       // Square root: the early decades stay visible next to the recent boom.
       var bh = d.hist[i] ? Math.max(1.5, Math.sqrt(d.hist[i] / max) * h) : 0;
-      ctx.fillStyle = i + TL_MIN <= cut ? "rgba(217,169,159,0.85)" : "rgba(143,132,115,0.28)";
+      var lit = i + TL_MIN <= cut;
+      ctx.fillStyle = lit ? LIT_BAR : DIM_BAR;
+      ctx.globalAlpha = lit ? 0.85 : 0.45;
       ctx.fillRect(i * step + 0.5, h - bh, Math.max(1, step - 1), bh);
     }
+    ctx.globalAlpha = 1;
   }
 
   function tlText() {
     var d = tl.data;
     var year = clamp(Math.round(tl.shown), TL_MIN, TL_MAX);
     $("tl-year").textContent = year;
+    countSoon();
     if (!d) return;
     var upto = 0, y;
     for (y = 0; y <= year - TL_MIN; y++) upto += d.hist[y];
@@ -912,7 +951,11 @@
       tlPlaying(true);
       tlKick();
     });
-    window.addEventListener("resize", tlDrawBars);
+    // Resizing fires many events a frame: redraw the bars once per frame.
+    var barsFrame = 0;
+    window.addEventListener("resize", function () {
+      if (!barsFrame) barsFrame = requestAnimationFrame(function () { barsFrame = 0; tlDrawBars(); });
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -977,16 +1020,66 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Points on screen
+
+  // How many of the place's points the screen frames right now, past the
+  // timeline's cut. The chunks' boxes skip whole chunks off screen and take
+  // whole chunks inside it; only the ones on the edge are walked point by
+  // point. The frame is the bounding box of the visible ground, so under the
+  // tilt it runs a little generous toward the horizon.
+  function countOnScreen() {
+    var d = current && cache.get(current);
+    var el = $("onscreen");
+    if (!el) return;
+    if (!d || !map) { el.textContent = "–"; return; }
+    var b = map.getBounds();
+    var sw = maplibregl.MercatorCoordinate.fromLngLat(b.getSouthWest());
+    var ne = maplibregl.MercatorCoordinate.fromLngLat(b.getNorthEast());
+    var x0 = sw.x - d.origin[0], x1 = ne.x - d.origin[0];
+    var y0 = ne.y - d.origin[1], y1 = sw.y - d.origin[1];
+    var cut = Math.round(tl.shown) - TL_MIN;
+    var years = d.hasYears && cut < TL_MAX - TL_MIN ? d.years : null;
+    var P = d.positions, B = d.boxes, C = d.chunk, n = d.n, total = 0;
+    for (var c = 0; c * C < n; c++) {
+      var bx0 = B[c * 4], by0 = B[c * 4 + 1], bx1 = B[c * 4 + 2], by1 = B[c * 4 + 3];
+      if (bx1 < x0 || bx0 > x1 || by1 < y0 || by0 > y1) continue;
+      var end = Math.min(n, (c + 1) * C);
+      if (!years && bx0 >= x0 && bx1 <= x1 && by0 >= y0 && by1 <= y1) { total += end - c * C; continue; }
+      for (var i = c * C; i < end; i++) {
+        var x = P[i * 2], y = P[i * 2 + 1];
+        if (x >= x0 && x <= x1 && y >= y0 && y <= y1 && (!years || years[i] <= cut)) total++;
+      }
+    }
+    el.textContent = fmt(total);
+  }
+
+  var countTimer = 0;
+  function countSoon() {
+    clearTimeout(countTimer);
+    countTimer = setTimeout(countOnScreen, 120);
+  }
+
+  // ---------------------------------------------------------------------------
   // Selecting a place
 
   function setReadout(uf) {
     var info = meta[uf];
     $("place").textContent = NAMES[uf] || uf;
-    var pct = info.n_estab_ativos ? (info.n_estab_geolocalizados / info.n_estab_ativos) * 100 : 0;
-    var html = "<b>" + fmt(info.n_estab_geolocalizados) + "</b> estabelecimentos no mapa<br>" +
-      pct.toFixed(0) + "% dos " + fmt(info.n_estab_ativos) + " ativos";
-    if (uf === "BR") html += "<br>vista com amostra de " + fmt(info.n_points) + " pontos";
-    $("count").innerHTML = html;
+    var share = info.n_estab_ativos ? info.n_estab_geolocalizados / info.n_estab_ativos : 0;
+    function row(label, value, cls, id) {
+      return '<div class="fact' + (cls ? " " + cls : "") + '"><span>' + label + "</span><b" +
+        (id ? ' id="' + id + '"' : "") + ">" + value + "</b></div>";
+    }
+    // Label left, figure right, one fact a row, with the geolocated share as
+    // a plain note under the count, rules between them. What the screen
+    // frames comes last and is filled in by countOnScreen().
+    $("count").innerHTML =
+      row("estabelecimentos", fmt(info.n_estab_geolocalizados)) + "<hr>" +
+      '<div class="note">' + Math.round(share * 100) + "% dos " + fmt(info.n_estab_ativos) + " ativos mapeados</div>" +
+      (uf === "BR" ? row("endereços na amostra", fmt(info.n_points)) : "") + "<hr>" +
+      // A point is an address: establishments sharing one are a single dot,
+      // so this counts addresses, not establishments.
+      row("visíveis na tela", "–", "now", "onscreen");
     document.title = (uf === "BR" ? "brasilumen" : (NAMES[uf] + " · brasilumen"));
   }
 
@@ -1016,12 +1109,21 @@
     }
     var landing = fly(uf, view);
 
-    var label = "iluminando " + (uf === "BR" ? "o Brasil" : uf);
+    // Each step says what it is waiting on: the download fills the bar, the
+    // rest (decoding millions of points, the end of the flight) sweeps it.
+    var place = uf === "BR" ? "o Brasil" : uf;
+    var landed = false;
+    landing.then(function () { landed = true; });
+    function step(label, frac) { if (requested === uf) showProgress(label, frac); }
     var cached = cache.has(uf);
-    showProgress(label, cached ? null : 0);
-    // Downloaded before the camera lands: the bar holds full until it does.
-    var loading = loadPoints(uf, function (f) { if (requested === uf) showProgress(label, f); })
-      .then(function (data) { if (requested === uf && !cached) showProgress(label, 1); return data; });
+    step(cached ? "iluminando " + place : "baixando " + place, cached ? null : 0);
+    var loading = loadPoints(uf, function (f) {
+      if (f < 1) step("baixando " + place, f);
+      else step("preparando os pontos", null);
+    }).then(function (data) {
+      if (!landed) step("quase lá", null);
+      return data;
+    });
     Promise.all([loading, landing])
       .then(function () {
         if (requested !== uf) return;
@@ -1029,6 +1131,7 @@
         current = uf;
         refreshTimeline();
         apply(true);
+        countSoon();
         hideProgress();
         if (changed) lightUp(from);
       })
@@ -1232,6 +1335,7 @@
     knobs.forEach(function (name) {
       $(name).addEventListener("input", function () {
         $(name + "-out").textContent = (+this.value).toFixed(2);
+        paintKnob(this);
         schedule(false);
         writeHashSoon();
       });
@@ -1277,7 +1381,41 @@
   // ---------------------------------------------------------------------------
   // Boot
 
+  // A first visit with no place in the URL asks ipwho.is which state the
+  // visitor's IP is in. Anything else (abroad, a state with no file, a slow or
+  // failed lookup) settles on Brasil.
+  // The lookup leaves at boot, alongside meta.json rather than after it, and
+  // the GEO_TIMEOUT clock starts there too.
+  function geoLookup() {
+    var timeout = new Promise(function (resolve) { setTimeout(resolve, GEO_TIMEOUT, null); });
+    var lookup = fetch("https://ipwho.is/?fields=success,country_code,region_code")
+      // Over the free quota (1k a day) or down: an error status, or
+      // success: false in the body. Both settle on Brasil like any failure.
+      .then(function (r) { if (!r.ok) throw new Error("ipwho.is " + r.status); return r.json(); })
+      .catch(function () { return null; });
+    return Promise.race([lookup, timeout]);
+  }
+
+  function guessUf(geo) {
+    return geo.then(function (g) {
+      var uf = g && g.success && g.country_code === "BR" ? String(g.region_code).toUpperCase() : "";
+      return meta[uf] && CAPITALS[uf] ? uf : "BR";
+    });
+  }
+
+  function capitalView(uf) {
+    if (uf === "BR") return null;
+    return {
+      center: CAPITALS[uf],
+      zoom: CAPITAL_ZOOM + screenShift(),
+      bearing: 0,
+      pitch: tilted ? TILT : 0,
+    };
+  }
+
   function boot() {
+    var shared = location.hash.length > 1;
+    var geo = shared ? null : geoLookup();
     fetch("data/meta.json")
       .then(function (r) {
         if (!r.ok) throw new Error("meta.json " + r.status);
@@ -1291,7 +1429,10 @@
 
         // Start the first place's download now, while the map sets up;
         // select() picks it up when the map is ready.
-        loadPoints(hashUf()).catch(function () { /* select() reports it */ });
+        var first = shared ? Promise.resolve(hashUf()) : guessUf(geo);
+        first.then(function (uf) {
+          loadPoints(uf).catch(function () { /* select() reports it */ });
+        });
 
         buildTiles();
         wireUi();
@@ -1323,8 +1464,13 @@
           map.on("zoom", function () { schedule(true); });
           map.on("moveend", writeHashSoon);
           map.on("moveend", followCamera);
-          var h = fromHash();
-          select(h.uf, showView(h));
+          map.on("moveend", countSoon);
+          if (shared) {
+            var h = fromHash();
+            select(h.uf, showView(h));
+          } else {
+            first.then(function (uf) { select(uf, capitalView(uf)); });
+          }
         });
       })
       .catch(function (err) {

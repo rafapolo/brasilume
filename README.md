@@ -13,7 +13,7 @@ Cada ponto é um estabelecimento com CNPJ ativo, posto no seu endereço do Censo
   centroide do CEP. Quem não casa fica fora do mapa; `data/meta.json` traz, por UF, quantos dos
   ativos foram geolocalizados.
 - Vários estabelecimentos no mesmo endereço viram um ponto só.
-- `data/br.bin.gz` é uma amostra de 2 milhões de pontos para a vista do Brasil. O DF ainda não tem arquivo.
+- `data/br.bin.gz` é uma amostra de 2 milhões de pontos para a vista do Brasil.
   Dando zoom nela, o mapa abre sozinho o estado sob o centro da tela, com todos os pontos, e segue
   o estado do centro ao cruzar a divisa. Quem diz o estado de cada lugar é `data/ufgrid.json`,
   uma grade de 0,2° gerada por `python3 scripts/ufgrid.py` a partir dos arquivos brutos do extrator
@@ -50,6 +50,8 @@ não muda.
 
 Ao mudar `app.js`, `app.css` ou `worker.js`, suba o `?v=` em `index.html` e em `app.js`, para o
 cache do GitHub Pages não misturar versões. `thumbs/` são imagens estáticas de cada UF usadas na prévia do seletor.
+`fonts/` traz as duas fontes (Bricolage Grotesque e Martian Mono, variáveis, subconjunto latino)
+servidas daqui, com as licenças SIL OFL.
 
 Para rodar localmente:
 
