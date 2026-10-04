@@ -1257,6 +1257,9 @@
   function setFilter(nextSector, nextKind) {
     sector = nextSector;
     kind = nextKind;
+    // Other points on screen: a look held from a shared link was not made
+    // for them, so auto takes over (showView sets the link's look after this).
+    sharedKnobs = null;
     $("sector").value = sector === null ? "" : String(sector);
     $("kind").value = kind === null ? "" : String(kind);
     $("sector").parentNode.classList.toggle("on", sector !== null);
