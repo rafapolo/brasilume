@@ -655,6 +655,9 @@
   // fromZoom: recompute from the curve and push the values into the sliders.
   // Otherwise the user just dragged one, so read the sliders as-is.
   var sharedKnobs = null;   // slider values from a shared link, see showView
+  // The lock by the zoom readout: locked, the zoom leaves the sliders where
+  // they are, so a look set by hand holds at every zoom.
+  var knobsLocked = false;
 
   // cintilar is not on the zoom curve: it stays where the user (or a shared
   // link) left it.
@@ -668,7 +671,9 @@
     if (!map) return;
     var z = map.getZoom();
     if (fromZoom && sharedKnobs && Math.abs(z - sharedKnobs.zoom) > 0.01) sharedKnobs = null;
-    if (fromZoom && sharedKnobs) {
+    if (fromZoom && knobsLocked) {
+      // keep the sliders as they are
+    } else if (fromZoom && sharedKnobs) {
       knobs.forEach(function (name) { setKnob(name, sharedKnobs[name]); });
     } else if (fromZoom) {
       var c = zoomCurve(z);
@@ -733,7 +738,7 @@
   function padding() {
     var small = window.innerWidth <= 640;
     // Phones: clear of the intro and readout stacked at the top.
-    if (small) return { top: document.querySelector(".rail").getBoundingClientRect().bottom + 16, bottom: 120, left: 16, right: 16 };
+    if (small) return { top: document.querySelector(".readout").getBoundingClientRect().bottom + 16, bottom: 120, left: 16, right: 16 };
     // Keep the place clear of the panel column on the left and the sliders
     // on the right (0 wide while folded away on short screens).
     var rail = document.querySelector(".rail").getBoundingClientRect();
@@ -1047,6 +1052,7 @@
     var uf = ufAt(c.lng, c.lat);
     if (!uf || !meta[uf] || uf === requested) return;
     if (z < DETAIL_ZOOM) { if (requested === "BR") prefetchSoon(uf); return; }
+    leavePlace(uf);
     select(uf, {
       center: [c.lng, c.lat],
       zoom: z,
@@ -1058,7 +1064,7 @@
   // ---------------------------------------------------------------------------
   // Filters
 
-  // Two filters, both on at once when both are set. sector: null, or 0..20
+  // Two filters, one at a time (picking one clears the other). sector: null, or 0..20
   // for the addresses holding at least one establishment in that CNAE
   // section. kind: null, or 0..7 for the addresses whose ~11 m around holds a
   // CNEFE address of kind k+1 (what the census saw there: home, school,
@@ -1146,6 +1152,12 @@
     })).then(function () { filterData(d); });
   }
 
+  // Going to another place by hand (a tile, or the camera crossing into it)
+  // starts it unfiltered. A link's filter still applies: the hash sets it.
+  function leavePlace(uf) {
+    if (uf !== requested && (sector !== null || kind !== null)) setFilter(null, null);
+  }
+
   function filterLabel() {
     return "separando " + (sector !== null ? SECTORS[sector] : KINDS[kind]).toLowerCase();
   }
@@ -1155,6 +1167,8 @@
     kind = nextKind;
     $("sector").value = sector === null ? "" : String(sector);
     $("kind").value = kind === null ? "" : String(kind);
+    $("sector").parentNode.classList.toggle("on", sector !== null);
+    $("kind").parentNode.classList.toggle("on", kind !== null);
     if (requested) setReadout(requested);
     var d = current && cache.get(current);
     if (!d) return;
@@ -1219,8 +1233,8 @@
     var info = meta[uf];
     $("place").textContent = NAMES[uf] || uf;
     $("sector-box").hidden = !hasSectors(uf) && !hasKinds(uf);
-    $("sector").hidden = !hasSectors(uf);
-    $("kind").hidden = !hasKinds(uf);
+    $("sector").parentNode.hidden = !hasSectors(uf);
+    $("kind").parentNode.hidden = !hasKinds(uf);
     // Filtered, the figures are the filter's own. By sector they set against
     // the sector's active establishments; by address kind there are no
     // active ones to set against (only mapped ones have a place), so the note
@@ -1228,19 +1242,19 @@
     var bySector = sector !== null && hasSectors(uf), byKind = kind !== null && hasKinds(uf);
     var all = { geo: info.n_estab_geolocalizados, ativos: info.n_estab_ativos };
     var sec = bySector ? info.setores[SECTOR_LETTERS[sector]] : all;
-    var geo = byKind ? (bySector ? info.cruzado[sector][kind] : info.especies[kind]) : sec.geo;
+    var geo = byKind ? info.especies[kind] : sec.geo;
     var note = byKind
-      ? Math.round(sec.geo ? (geo / sec.geo) * 100 : 0) + "% dos " + fmt(sec.geo) + (bySector ? " do setor" : "") + " no mapa"
+      ? Math.round(sec.geo ? (geo / sec.geo) * 100 : 0) + "% dos " + fmt(sec.geo) + " no mapa"
       : Math.round(sec.ativos ? (sec.geo / sec.ativos) * 100 : 0) + "% dos " + fmt(sec.ativos) + " ativos mapeados";
     function row(label, value, cls, id) {
       return '<div class="fact' + (cls ? " " + cls : "") + '"><span>' + label + "</span><b" +
         (id ? ' id="' + id + '"' : "") + ">" + value + "</b></div>";
     }
-    // Label left, figure right, one fact a row, with the geolocated share as
-    // a plain note under the count, rules between them. What the screen
-    // frames comes last and is filled in by countOnScreen().
+    // Label left, figure right, one fact a row, with the share as a plain
+    // note under the count, rules between them. What the screen frames comes
+    // last and is filled in by countOnScreen().
     $("count").innerHTML =
-      row("estabelecimentos", fmt(geo)) + "<hr>" +
+      row("estabelecimentos", fmt(geo), "main") + "<hr>" +
       '<div class="note">' + note + "</div>" +
       (uf === "BR" ? row("endereços na amostra", fmt(info.n_points)) : "") + "<hr>" +
       // A point is an address: establishments sharing one are a single dot,
@@ -1327,9 +1341,9 @@
     var c = map.getContainer();
     return Math.log2(Math.min(c.clientWidth, c.clientHeight) / REF_SIDE);
   }
-  // The place may carry the filters: #sp~g~5/... is São Paulo, commerce (G)
-  // around health establishments (CNEFE kind 5). They ride on the first field
-  // so the numbers after it keep their places.
+  // The place may carry a filter: #sp~g/... is São Paulo, commerce only (CNAE
+  // section G); #sp~5/... its addresses the census saw as health (CNEFE kind
+  // 5). It rides on the first field so the numbers after it keep their places.
   function hashUf() {
     var uf = location.hash.replace("#", "").split("/")[0].split("~")[0].toUpperCase();
     return meta[uf] ? uf : "BR";
@@ -1341,6 +1355,8 @@
       if (/^[1-8]$/.test(t)) out.kind = +t - 1;
       else if (t.length === 1 && SECTOR_LETTERS.indexOf(t) >= 0) out.sector = SECTOR_LETTERS.indexOf(t);
     });
+    // One at a time: a link carrying both keeps the sector.
+    if (out.sector !== null) out.kind = null;
     return out;
   }
 
@@ -1449,6 +1465,7 @@
     $("picker").addEventListener("click", function (e) {
       var t = e.target.closest(".tile[data-uf]");
       if (!t || t.disabled) return;
+      leavePlace(t.dataset.uf);
       select(t.dataset.uf);
       closePicker();
     });
@@ -1522,11 +1539,12 @@
       o.textContent = name;
       $("kind").appendChild(o);
     });
+    // One filter at a time: picking one clears the other.
     $("sector").addEventListener("change", function () {
-      setFilter(this.value === "" ? null : +this.value, kind);
+      setFilter(this.value === "" ? null : +this.value, null);
     });
     $("kind").addEventListener("change", function () {
-      setFilter(sector, this.value === "" ? null : +this.value);
+      setFilter(null, this.value === "" ? null : +this.value);
     });
 
     buildTimeline();
@@ -1544,6 +1562,16 @@
         schedule(false);
         writeHashSoon();
       });
+    });
+
+    $("knob-lock").addEventListener("click", function () {
+      knobsLocked = !knobsLocked;
+      this.setAttribute("aria-pressed", knobsLocked ? "true" : "false");
+      this.title = knobsLocked
+        ? "Destravar: os controles voltam a acompanhar o zoom"
+        : "Travar: o zoom deixa de mexer nos controles";
+      // Unlocked, the sliders go back to the zoom curve right away.
+      if (!knobsLocked) { sharedKnobs = null; schedule(true); }
     });
 
     $("twinkle").disabled = reduceMotion;

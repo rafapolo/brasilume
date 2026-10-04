@@ -42,7 +42,7 @@
        connection while the page loads. -->
   <link rel="preconnect" href="https://ipwho.is" crossorigin>
 
-  <link rel="stylesheet" href="app.css?v=51">
+  <link rel="stylesheet" href="app.css?v=57">
 </head>
 <body>
   <div id="map" aria-label="Mapa de pontos de estabelecimentos"></div>
@@ -53,7 +53,27 @@
     <div class="bar"><i id="progress-fill"></i></div>
   </div>
 
-  <aside class="light" aria-label="Ajustes de luz">
+  <aside class="light" aria-label="Lugar e ajustes de luz">
+    <section class="readout panel" aria-live="polite">
+      <span id="place" class="place">Brasil</span>
+      <hr>
+      <div id="sector-box" class="sector" hidden>
+        <label class="filter">
+          <span class="label">setor · CNAE · Receita Federal</span>
+          <select id="sector">
+            <option value="">todos os setores</option>
+          </select>
+        </label>
+        <label class="filter">
+          <span class="label">endereço · CNEFE · IBGE</span>
+          <select id="kind">
+            <option value="">todos os endereços</option>
+          </select>
+        </label>
+      </div>
+      <hr>
+      <div id="count" class="facts"></div>
+    </section>
     <div id="light-panel" class="light-panel panel">
       <label class="knob">
         <span>opacidade <output id="opacity-out"></output></span>
@@ -71,7 +91,15 @@
         <span>cintilar <output id="twinkle-out"></output></span>
         <input type="range" id="twinkle" min="0" max="1" step="0.01" value="0.46">
       </label>
-      <div class="light-foot">zoom <output id="zoomval">–</output></div>
+      <div class="light-foot">
+        <button type="button" id="knob-lock" class="lock" aria-pressed="false" aria-label="Travar os controles de luz" title="Travar: o zoom deixa de mexer nos controles">
+          <svg viewBox="0 0 12 12" aria-hidden="true">
+            <rect x="2" y="5.5" width="8" height="5.5" rx="1"/>
+            <path class="shackle" d="M4 5.5V3.6a2 2 0 0 1 4 0v1.9"/>
+          </svg>
+        </button>
+        <span>zoom <output id="zoomval">–</output></span>
+      </div>
     </div>
     <div class="chips">
       <button type="button" id="light-toggle" class="chip" data-sheet="light" aria-expanded="false" aria-controls="light-panel">luz</button>
@@ -80,26 +108,13 @@
     </div>
   </aside>
 
-  <!-- The intro, the readout and the picker stack in one column on the left;
-       on phones only the intro and the readout stay there, the picker becomes a sheet. -->
+  <!-- The intro and the picker stack in one column on the left; on phones
+       only the intro stays there, the picker becomes a sheet. -->
   <div class="rail">
     <header class="masthead panel">
       <h1 class="wordmark">brasi<span class="lit">l</span>umen</h1>
       <p class="dek">Cada ponto é um estabelecimento com CNPJ ativo, posto no seu endereço do Censo&nbsp;2022.</p>
     </header>
-
-    <section class="readout panel" aria-live="polite">
-      <span id="place" class="place">Brasil</span>
-      <div id="sector-box" class="sector" hidden>
-        <select id="sector" aria-label="Filtrar por setor (seção CNAE)">
-          <option value="">todos os setores</option>
-        </select>
-        <select id="kind" aria-label="Filtrar pela espécie do endereço no Censo (CNEFE)">
-          <option value="">todos os endereços</option>
-        </select>
-      </div>
-      <div id="count" class="facts"></div>
-    </section>
 
     <nav id="picker" class="picker panel" aria-label="Escolher estado">
       <div class="picker-head">
@@ -163,11 +178,10 @@
       estabelecimento mais antigo abriu depois do ano escolhido. Como o mapa só tem quem segue
       ativo hoje, quem já fechou não aparece: ela mostra o que existe hoje e já existia naquele ano.
       Não se vê o caso quando empresas ou setores inteiros encerram, como aconteceu na pandemia.</p>
-    <p>Os dois filtros separam os pontos de jeitos diferentes. O setor vem da atividade principal
+    <p>Os dois filtros, usados um de cada vez, separam os pontos de jeitos diferentes. O setor vem da atividade principal
       declarada à Receita, nas 21 seções da CNAE: um endereço aparece se tiver ao menos um
       estabelecimento no setor. A espécie do endereço vem do que o recenseador do IBGE anotou no
-      local em 2022 (domicílio, ensino, saúde, religioso…), tirada dos endereços do CNEFE a uns
-      10 metros do ponto. Os dois podem discordar: uma empresa aberta numa casa é comércio para a
+      local em 2022, tirada dos endereços do CNEFE a uns 10 metros do ponto. Os dois podem discordar: uma empresa aberta numa casa é comércio para a
       Receita e domicílio para o IBGE.</p>
     <p>A soma de luz é aditiva: onde muitos pontos se empilham, a cor satura até o branco.
       Brilho controla quantos pontos são precisos para isso.</p>
@@ -178,6 +192,6 @@
 
   <div id="error" class="error" role="alert" hidden></div>
 
-  <script src="app.js?v=46" defer></script>
+  <script src="app.js?v=53" defer></script>
 </body>
 </html>

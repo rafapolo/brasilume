@@ -49,9 +49,9 @@ O segundo seletor filtra pela espécie do endereço no CNEFE (o que o recenseado
 em construção, religioso). O extrator junta, por ponto, as espécies dos endereços do CNEFE na
 mesma célula de ~11 m (`RAW4`), e `repack.py` grava `data/<uf>.especies.bin.gz`: `BLE1`, `n` e `n`
 bytes de máscara (bit k = espécie k+1). Em `meta.json`, `especies` traz os estabelecimentos por
-espécie e `cruzado` a tabela seção × espécie, para os números do painel com os dois filtros. Os
-dois filtros combinam, e a espécie vai no link como número: `#sp~g~5` é comércio junto a
-estabelecimentos de saúde.
+espécie e `cruzado` a tabela seção × espécie (o painel não a usa hoje). Os dois filtros valem um
+de cada vez: escolher um limpa o outro. A espécie vai no link como número: `#sp~5` são os endereços
+de saúde de São Paulo.
 
 ### Linha do tempo
 
