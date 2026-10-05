@@ -33,6 +33,12 @@ estabelecimento mais antigo daquele ponto, menos 1900 (aberturas anteriores a 19
 dados novos; arquivos já compactados são ignorados, e os de layout sem ano (`BLP2`) pedem uma
 nova extração.
 
+O `br.bin.gz` usa uma grade 16× mais grossa (1,6e-4°, ~18 m). A vista do Brasil passa para um
+estado por volta do zoom 8 mesmo numa tela 4K, onde um pixel tem ~1e-3°, então o desvio fica numa
+fração de pixel (as capturas saem idênticas) e o arquivo cai de 6,0 para 3,9 MB. Cortar os bits
+baixos das duas coordenadas mantém a ordem de Morton, então os arquivos de filtro continuam
+alinhados; o `repack.py` engrossa no lugar um `br.bin.gz` que ainda esteja na grade fina.
+
 ### Setores (CNAE)
 
 O seletor no painel do lugar filtra o mapa por setor: as 21 seções da CNAE 2.0 (A a U), tiradas da
@@ -69,7 +75,11 @@ decodificação fora da thread principal). MapLibre GL com uma camada WebGL pró
 cada estabelecimento como um ponto com mistura aditiva. De longe, onde centenas de pontos caem no
 mesmo pixel, o worker junta os pontos de cada célula da grade num ponto só que carrega a contagem e
 soma a mesma luz; a camada só usa um nível cujas células ficam abaixo de ⅓ de pixel, então a imagem
-não muda.
+não muda. Com a câmera em movimento o limite sobe para 2 pixels: os centros mais claros perdem um
+pouco do degradê, o que o movimento esconde, e São Paulo inteiro vai de ~25 para ~8 ms por quadro;
+ao parar, o quadro é redesenhado exato. A luz automática também lê os níveis em vez dos pontos, e
+com filtro tanto ela quanto o desenho usam só os pontos que passam nele. O cintilar redesenha o mapa
+parado a 20 quadros por segundo.
 
 Ao mudar `app.js`, `app.css` ou `worker.js`, suba o `?v=` em `index.html` e em `app.js`, para o
 cache do GitHub Pages não misturar versões. `thumbs/` são imagens estáticas de cada UF usadas na prévia do seletor.

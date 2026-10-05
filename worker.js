@@ -252,7 +252,10 @@ function chunkBoxes(data, n, stride) {
 // Points are in Morton order, so the points of a cell are contiguous at every
 // level: each level is one linear pass over the previous one.
 //
-var LEVEL_FIRST = 6;  // finer cells merge too little to be worth a level
+// The first level's cells are LEVEL_FIRST_DEG wide (64 steps of the states'
+// 1e-5 degree grid): finer cells merge too little to be worth a level. On a
+// coarser grid (br.bin.gz) that is fewer steps.
+var LEVEL_FIRST_DEG = 64e-5;
 var LEVEL_STEP = 2;   // then cells grow 4x per side each level
 
 function buildLevels(pts) {
@@ -261,7 +264,8 @@ function buildLevels(pts) {
   var yTable = pts.yTable;
   var ix = pts.gx, iy = pts.gy, cnt = null;     // input: raw points, count 1
   var sx0 = null, sy0 = null;                   // input sums of grid coords
-  for (var k = LEVEL_FIRST, shift = LEVEL_FIRST; k <= 24; k += LEVEL_STEP, shift = LEVEL_STEP) {
+  var first = Math.max(1, Math.round(Math.log2(LEVEL_FIRST_DEG / q)));
+  for (var k = first, shift = first; k <= 24; k += LEVEL_STEP, shift = LEVEL_STEP) {
     var cxs = new Int32Array(n), cys = new Int32Array(n);
     var sumx = new Float64Array(n), sumy = new Float64Array(n), cs = new Float32Array(n);
     var m = 0, i = 0;

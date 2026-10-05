@@ -28,6 +28,14 @@ neighbours in the file: the deltas stay tiny and gzip packs them ~3.5x smaller
 than the raw floats. Draw order does not matter, since dots are summed by
 additive blending.
 
+br.bin.gz, the sample the whole-country view draws, is coarser: its grid is
+2^BR_SHIFT steps (1.6e-4 degree, ~18 m). That view hands over to a state by
+zoom ~8 even on a 4K screen, where a device pixel is ~1e-3 degree, so the
+snap stays a fraction of a pixel, and the file is ~36% smaller. Dropping the
+low bits of both indexes keeps the Morton order exactly, so the filter files
+(same point order) still line up. A packed br.bin.gz on the fine grid is
+coarsened in place.
+
 Files already in the packed layout are skipped, so it is safe to rerun.
 
 Usage: python3 scripts/repack.py [data_dir]
@@ -45,6 +53,7 @@ MAGIC_SETORES = b"BLS1"
 MAGIC_ESPECIES = b"BLE1"
 OLD_MAGICS = (b"BLP2",)
 Q = 1e-5
+BR_SHIFT = 4
 
 
 def spread_bits(v):
@@ -84,10 +93,50 @@ def varints(a):
     return out.tobytes()
 
 
+def coarsen(x, y, lng0, lat0, q):
+    """Drop BR_SHIFT low bits of the grid indexes; the origin moves to the
+    centre of the coarse cell, so the snap is at most half a cell."""
+    half = ((1 << BR_SHIFT) - 1) / 2 * q
+    return x >> BR_SHIFT, y >> BR_SHIFT, lng0 + half, lat0 + half, q * (1 << BR_SHIFT)
+
+
+def unvarints(buf, off, n):
+    """Decode n LEB128 varints from buf at off; returns (values, next offset)."""
+    b = np.frombuffer(buf, np.uint8)
+    ends = np.flatnonzero(b[off:] < 128)[:n] + off
+    starts = np.concatenate(([off], ends[:-1] + 1))
+    vals = np.zeros(n, np.uint64)
+    for k in range(int((ends - starts).max()) + 1):
+        live = starts + k <= ends
+        vals[live] |= (b[starts[live] + k].astype(np.uint64) & np.uint64(0x7F)) << np.uint64(7 * k)
+    return vals, int(ends[-1]) + 1
+
+
+def coarsen_packed(path, raw):
+    """br.bin.gz packed on the fine grid: coarsen it, same point order."""
+    _, n, lng0, lat0, q = struct.unpack_from("<4sIddd", raw, 0)
+    if q >= Q * (1 << BR_SHIFT):
+        return None
+    unzig = lambda u: (u >> np.uint64(1)).astype(np.int64) ^ -(u & np.uint64(1)).astype(np.int64)
+    dx, o = unvarints(raw, 32, n)
+    dy, o = unvarints(raw, o, n)
+    x, y, lng0, lat0, q = coarsen(np.cumsum(unzig(dx)), np.cumsum(unzig(dy)), lng0, lat0, q)
+    body = (
+        struct.pack("<4sIddd", MAGIC, n, lng0, lat0, q)
+        + varints(zigzag(np.diff(x, prepend=0)))
+        + varints(zigzag(np.diff(y, prepend=0)))
+        + raw[o:o + n]
+    )
+    before = path.stat().st_size
+    packed = gzip.compress(body, 9)
+    path.write_bytes(packed)
+    return before, len(packed)
+
+
 def repack(path):
     raw = gzip.decompress(path.read_bytes())
     if raw[:4] == MAGIC:
-        return None
+        return coarsen_packed(path, raw) if path.name == "br.bin.gz" else None
     if raw[:4] in OLD_MAGICS:
         raise SystemExit(f"{path}: layout BLP2 não tem ano; extraia de novo com extrai_estados_cnpj.py")
     if raw[:4] not in (b"RAW2", b"RAW3", b"RAW4"):
@@ -107,9 +156,12 @@ def repack(path):
     y = np.round((lat - lat0) / Q).astype(np.int64)
     order = np.argsort(spread_bits(x) | (spread_bits(y) << np.uint64(1)), kind="stable")
     x, y, year = x[order], y[order], year[order]
+    q = Q
+    if path.name == "br.bin.gz":
+        x, y, lng0, lat0, q = coarsen(x, y, lng0, lat0, Q)
 
     body = (
-        struct.pack("<4sIddd", MAGIC, n, lng0, lat0, Q)
+        struct.pack("<4sIddd", MAGIC, n, lng0, lat0, q)
         + varints(zigzag(np.diff(x, prepend=0)))
         + varints(zigzag(np.diff(y, prepend=0)))
         + year.tobytes()

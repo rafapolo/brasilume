@@ -210,7 +210,7 @@
 
   // Versioned so a cached worker never pairs with a newer app.js (GitHub
   // Pages caches for 10 min). Bump together with the ?v= in index.html.
-  var WORKER_URL = "worker.js?v=9";
+  var WORKER_URL = "worker.js?v=10";
   var worker = new Worker(WORKER_URL);
   var nextId = 0;
   var pending = {};
@@ -338,6 +338,12 @@
   // rgb * min(1, light * coverage) * count with blend ONE + ONE, which equals
   // the old SRC_ALPHA + ONE with alpha = light * coverage for a single dot.
   var LOD_MAX_PX = 0.3;
+  // While the camera moves, the cells may grow to LOD_MOVING_PX: the merged
+  // dots lose a little of the gradient in the brightest centres, which a
+  // moving picture hides, and a state of millions of points draws in a
+  // fraction of the time (São Paulo at zoom 7.6: 25 ms a frame to 8). The
+  // camera at rest draws the exact picture again.
+  var LOD_MOVING_PX = 2;
 
   // Twinkle: the light drifts around its value, by up to TWINKLE of it, on a
   // phase and period (about 1 to 2.5 s) of its own, like city lights seen
@@ -350,10 +356,10 @@
   var TWINKLE_PX = 2;
   var twinkle = 0;
   // While the camera rests, the twinkle alone asks for a frame only every
-  // TWINKLE_MS: it drifts over seconds, so about 30 fps reads the same and
-  // halves the GPU (and battery) spent on a still map. A moving camera
-  // repaints at full rate anyway.
-  var TWINKLE_MS = 20;
+  // TWINKLE_MS: it drifts over seconds, so 20 fps reads the same, and a still
+  // map of millions of points no longer keeps the GPU (and the battery) busy.
+  // A moving camera repaints at full rate anyway.
+  var TWINKLE_MS = 50;
 
   var VS = [
     "attribute vec2 a_pos;",
@@ -497,7 +503,7 @@
     // up to ~1 + pitch/45 against the centre.
     function pickLevel(d, zoom, dpr, pitch) {
       var pxWorld = 1 / (512 * Math.pow(2, zoom) * dpr);
-      var limit = (LOD_MAX_PX * pxWorld) / (1.25 * (1 + pitch / 45));
+      var limit = ((map.isMoving() ? LOD_MOVING_PX : LOD_MAX_PX) * pxWorld) / (1.25 * (1 + pitch / 45));
       var best = null;
       for (var i = 0; i < d.levels.length; i++) {
         if ((Math.pow(2, d.levels[i].k) * d.q) / 360 <= limit) best = d.levels[i];
@@ -563,7 +569,7 @@
           // A merged dot cannot say how many of its points existed in a given
           // year, so while the timeline is cut short the points draw one by one.
           // Nor can it say which sectors it holds: filtered, too.
-          var level = params.year >= params.yearMax && !d.view ? pickLevel(d, map.getZoom(), dpr, map.getPitch()) : null;
+          var level = params.year >= params.yearMax && !d.sub ? pickLevel(d, map.getZoom(), dpr, map.getPitch()) : null;
 
           gl.enableVertexAttribArray(loc.a_pos);
           if (level) {
@@ -574,19 +580,20 @@
             gl.disableVertexAttribArray(loc.a_year);
             gl.vertexAttrib1f(loc.a_year, 0);
           } else {
-            gl.bindBuffer(gl.ARRAY_BUFFER, bufferFor(d.uf, d.positions));
+            // Filtered, only the points it lets through (d.sub) go to the GPU.
+            var sub = d.sub;
+            gl.bindBuffer(gl.ARRAY_BUFFER, sub ? bufferFor(d.uf + ":fp", sub.positions) : bufferFor(d.uf, d.positions));
             gl.vertexAttribPointer(loc.a_pos, 2, gl.FLOAT, false, 0, 0);
             gl.disableVertexAttribArray(loc.a_count);
             gl.vertexAttrib1f(loc.a_count, 1);
-            // Filtered, the years come from the view, where the points out of
-            // the sector carry 255: a year the timeline never reaches.
-            gl.bindBuffer(gl.ARRAY_BUFFER, d.view ? bufferFor(d.uf + ":yf", d.view) : bufferFor(d.uf + ":y", d.years));
+            gl.bindBuffer(gl.ARRAY_BUFFER, sub ? bufferFor(d.uf + ":fy", sub.years) : bufferFor(d.uf + ":y", d.years));
             gl.enableVertexAttribArray(loc.a_year);
             gl.vertexAttribPointer(loc.a_year, 1, gl.UNSIGNED_BYTE, false, 0, 0);
           }
           gl.uniformMatrix4fv(loc.u_matrix, false, m);
           gl.uniform1f(loc.u_light, l);
           if (level) drawVisible(level.boxes, d.chunk, level.n, mx, my);
+          else if (d.sub) drawVisible(d.sub.boxes, d.chunk, d.sub.n, mx, my);
           else drawVisible(d.boxes, d.chunk, d.n, mx, my);
         }
       },
@@ -595,14 +602,16 @@
 
       refresh: function () { map.triggerRepaint(); },
 
-      // The filters changed d.view: drop its buffer, the next draw uploads
-      // the new one (one per place, never one per filter).
+      // The filters changed d.sub: drop its buffers, the next draw uploads
+      // the new ones (one pair per place, never one per filter).
       refilter: function (uf) {
-        var buf = buffers.get(uf + ":yf");
-        if (buf) {
-          if (gl) gl.deleteBuffer(buf);
-          buffers.delete(uf + ":yf");
-        }
+        [":fp", ":fy"].forEach(function (key) {
+          var buf = buffers.get(uf + key);
+          if (buf) {
+            if (gl) gl.deleteBuffer(buf);
+            buffers.delete(uf + key);
+          }
+        });
         map.triggerRepaint();
       },
 
@@ -1187,22 +1196,25 @@
   function hasSectors(uf) { return !!(meta[uf] && meta[uf].setores); }
   function hasKinds(uf) { return !!(meta[uf] && meta[uf].especies); }
 
-  // d.view: d's years with 255 for every point the filters leave out (the
-  // layer draws from it, and 255 is a year the timeline never reaches); d.hist
-  // and d.nView: the timeline's histogram and point count, filtered.
+  // d.sub: the points the filters let through, packed in their (Morton)
+  // order with their years and chunk boxes, or null with no filter. The
+  // layer draws only these, and auto and the count on screen walk only these
+  // (a sector is often a tenth of the place). d.hist and d.nView: the
+  // timeline's histogram and point count, filtered.
   function filterData(d) {
-    var was = d.view;
+    var was = d.sub;
     var bySector = sector !== null && d.setores, byKind = kind !== null && d.especies;
     d.firstYear = null;
+    d.sub = null;
     if (!bySector && !byKind) {
-      d.view = null;
       d.hist = d.histAll;
       d.nView = d.n;
     } else {
       var code = bySector ? d.setores.code : null, multi = bySector ? d.setores.multi : null;
       var kinds = byKind ? d.especies.mask : null;
       var bit = 1 << sector, kbit = 1 << kind;
-      var view = new Uint8Array(d.n), hist = new Uint32Array(256), shown = 0, j = 0;
+      var P = d.positions, Y = d.years;
+      var pos = new Float32Array(d.n * 2), years = new Uint8Array(d.n), hist = new Uint32Array(256), shown = 0, j = 0;
       for (var i = 0; i < d.n; i++) {
         var on = true;
         if (code) {
@@ -1210,15 +1222,50 @@
           on = c === 255 ? (multi[j++] & bit) !== 0 : c === sector;
         }
         if (on && kinds) on = (kinds[i] & kbit) !== 0;
-        if (on) { view[i] = d.years[i]; hist[d.years[i]]++; shown++; } else view[i] = 255;
+        if (!on) continue;
+        pos[shown * 2] = P[i * 2];
+        pos[shown * 2 + 1] = P[i * 2 + 1];
+        years[shown++] = Y[i];
+        hist[Y[i]]++;
       }
-      d.view = view;
       d.hist = hist;
       d.nView = shown;
+      // Copied out, so the room left over goes back.
+      d.sub = { n: shown, positions: pos.slice(0, shown * 2), years: years.slice(0, shown) };
+      d.sub.boxes = chunkBoxes(d.sub.positions, shown, d.chunk);
     }
-    if ((was || d.view) && points) points.refilter(d.uf);
+    if ((was || d.sub) && points) points.refilter(d.uf);
     if (d.uf === requested && $("addresses")) $("addresses").textContent = fmt(d.nView);
     if (d.uf === current) autoSnap();
+  }
+
+  // [minx, miny, maxx, maxy] of every run of C points, as worker.js does for
+  // a place's own points: the layer and the walks skip the runs off screen.
+  function chunkBoxes(pos, n, C) {
+    var count = Math.ceil(n / C), boxes = new Float32Array(count * 4);
+    for (var c = 0; c < count; c++) {
+      var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (var k = c * C, end = Math.min(n, k + C); k < end; k++) {
+        var x = pos[k * 2], y = pos[k * 2 + 1];
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+      boxes[c * 4] = x0;
+      boxes[c * 4 + 1] = y0;
+      boxes[c * 4 + 2] = x1;
+      boxes[c * 4 + 3] = y1;
+    }
+    return boxes;
+  }
+
+  // The points auto and the count walk: a filter's own (years always there,
+  // but only read while the timeline is cut), or the place's.
+  function walkSet(d, cut) {
+    var cutting = cut < TL_MAX - TL_MIN;
+    if (d.sub) return { P: d.sub.positions, B: d.sub.boxes, n: d.sub.n, years: cutting ? d.sub.years : null };
+    return { P: d.positions, B: d.boxes, n: d.n, years: d.hasYears && cutting ? d.years : null };
   }
 
   // What d still has to fetch for the filters set now.
@@ -1304,9 +1351,8 @@
     var x0 = sw.x - d.origin[0], x1 = ne.x - d.origin[0];
     var y0 = ne.y - d.origin[1], y1 = sw.y - d.origin[1];
     var cut = Math.min(Math.round(tl.shown), TL_MAX) - TL_MIN;
-    // The filtered view hides its outsiders with year 255, past any cut.
-    var years = d.view || (d.hasYears && cut < TL_MAX - TL_MIN ? d.years : null);
-    var P = d.positions, B = d.boxes, C = d.chunk, n = d.n, total = 0;
+    var set = walkSet(d, cut), years = set.years;
+    var P = set.P, B = set.B, C = d.chunk, n = set.n, total = 0;
     for (var c = 0; c * C < n; c++) {
       var bx0 = B[c * 4], by0 = B[c * 4 + 1], bx1 = B[c * 4 + 2], by1 = B[c * 4 + 3];
       if (bx1 < x0 || bx0 > x1 || by1 < y0 || by0 > y1) continue;
@@ -1382,9 +1428,17 @@
   // The lit cells by how many points each holds, as a histogram: one bin per
   // count up to AUTO_EXACT, then AUTO_STEPS bins per doubling. It stands for
   // the sorted list of cells at a fraction of the cost, which matters because
-  // this runs while the map moves. The grid is kept between calls.
+  // this runs while the map moves. The grid is kept between calls, and only
+  // the cells a point fell in are read and cleared (autoLit lists them): most
+  // of a frame's grid is dark.
+  //
+  // With every point on (no filter, the timeline at today), the walk takes
+  // the merged level whose cells are at most AUTO_LEVEL of an auto cell: a
+  // merged dot carries its count, so the cells come out nearly the same from
+  // a fraction of the points.
   var AUTO_EXACT = 64, AUTO_STEPS = 8, AUTO_BINS = AUTO_EXACT + 28 * AUTO_STEPS;
-  var autoGrid = new Uint32Array(0);
+  var AUTO_LEVEL = 0.5;
+  var autoGrid = new Uint32Array(0), autoLit = new Uint32Array(0);
   var autoCells = new Float64Array(AUTO_BINS), autoPoints = new Float64Array(AUTO_BINS);
   function autoStats() {
     var d = current && cache.get(current);
@@ -1399,44 +1453,47 @@
     var cell = Math.max(AUTO_CELL / world, Math.sqrt(((x1 - x0) * (y1 - y0)) / AUTO_CELLS));
     var w = Math.ceil((x1 - x0) / cell), h = Math.ceil((y1 - y0) / cell), size = w * h;
     if (!(w > 0 && h > 0)) return null;
-    if (autoGrid.length < size) autoGrid = new Uint32Array(size);
-    else autoGrid.fill(0, 0, size);
-    var grid = autoGrid, per = 1 / cell;
+    if (autoGrid.length < size) {
+      autoGrid = new Uint32Array(size);
+      autoLit = new Uint32Array(size);
+    }
+    var grid = autoGrid, touched = autoLit, lit = 0, per = 1 / cell;
     var cut = Math.min(Math.round(tl.shown), TL_MAX) - TL_MIN;
-    var years = d.view || (d.hasYears && cut < TL_MAX - TL_MIN ? d.years : null);
-    var P = d.positions, B = d.boxes, C = d.chunk, n = d.n;
+    var set = walkSet(d, cut), years = set.years;
+    // The source: points (stride 2, count 1) or a merged level (stride 3,
+    // the count third).
+    var P = set.P, B = set.B, C = d.chunk, n = set.n, S = 2, level = null;
+    if (!years && !d.sub && d.levels) {
+      for (var l = 0; l < d.levels.length; l++) {
+        if ((Math.pow(2, d.levels[l].k) * d.q) / 360 <= cell * AUTO_LEVEL) level = d.levels[l];
+      }
+    }
+    if (level) { P = level.data; B = level.boxes; n = level.n; S = 3; }
     for (var c = 0; c * C < n; c++) {
       var bx0 = B[c * 4], by0 = B[c * 4 + 1], bx1 = B[c * 4 + 2], by1 = B[c * 4 + 3];
       if (bx1 < x0 || bx0 > x1 || by1 < y0 || by0 > y1) continue;
-      var i = c * C, end = Math.min(n, i + C), x, y;
-      if (bx0 >= x0 && bx1 < x1 && by0 >= y0 && by1 < y1) {
-        // A chunk wholly in frame: no point of it needs the test.
-        if (years) {
-          for (; i < end; i++) {
-            if (years[i] <= cut) grid[(((P[i * 2 + 1] - y0) * per) | 0) * w + (((P[i * 2] - x0) * per) | 0)]++;
-          }
-        } else {
-          for (; i < end; i++) grid[(((P[i * 2 + 1] - y0) * per) | 0) * w + (((P[i * 2] - x0) * per) | 0)]++;
-        }
-        continue;
-      }
+      var i = c * C, end = Math.min(n, i + C), x, y, at;
+      // A chunk wholly in frame: no point of it needs the frame test.
+      var inside = bx0 >= x0 && bx1 < x1 && by0 >= y0 && by1 < y1;
       for (; i < end; i++) {
-        x = P[i * 2];
-        y = P[i * 2 + 1];
-        if (x < x0 || x >= x1 || y < y0 || y >= y1 || (years && years[i] > cut)) continue;
-        grid[(((y - y0) * per) | 0) * w + (((x - x0) * per) | 0)]++;
+        x = P[i * S];
+        y = P[i * S + 1];
+        if (!inside && (x < x0 || x >= x1 || y < y0 || y >= y1)) continue;
+        if (years && years[i] > cut) continue;
+        at = (((y - y0) * per) | 0) * w + (((x - x0) * per) | 0);
+        if (!grid[at]) touched[lit++] = at;
+        grid[at] += S === 3 ? P[i * 3 + 2] : 1;
       }
     }
-    var cells = autoCells, points = autoPoints, lit = 0;
+    var cells = autoCells, points = autoPoints;
     cells.fill(0);
     points.fill(0);
-    for (var k = 0; k < size; k++) {
-      var v = grid[k];
-      if (!v) continue;
+    for (var k = 0; k < lit; k++) {
+      var v = grid[touched[k]];
+      grid[touched[k]] = 0;
       var bin = v < AUTO_EXACT ? v : Math.min(AUTO_BINS - 1, AUTO_EXACT + ((Math.log2(v / AUTO_EXACT) * AUTO_STEPS) | 0));
       cells[bin]++;
       points[bin] += v;
-      lit++;
     }
     if (!lit) return null;
     // gap: the usual distance between lit cells, in pixels.
@@ -2130,6 +2187,8 @@
           map.on("moveend", writeHashSoon);
           map.on("moveend", followCamera);
           map.on("moveend", countSoon);
+          // The last frame of a move drew the coarse levels: draw it exact.
+          map.on("moveend", function () { points.refresh(); });
           // A tap on the map puts the phone's panels away.
           map.on("click", function () {
             setSheet(null);
