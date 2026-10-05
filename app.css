@@ -544,9 +544,11 @@ button {
 
 .chips {
   display: flex;
-  flex-wrap: wrap;
   gap: 6px;
 }
+
+/* The three actions in one row, inside the panel's width. */
+.chips .chip { padding: 0 9px; }
 
 /* luz only shows on short screens, where the sliders fold away. */
 #light-toggle { display: none; }
@@ -567,9 +569,9 @@ button {
 
 .chip[aria-expanded="true"] { border-color: var(--hair-hi); }
 
-/* The two actions carry an icon before the word: a plane, tilted or flat,
-   and a ringed question mark. Phones keep only the icons. */
-#tilt, #about-open {
+/* The actions carry an icon before the word: a plane, tilted or flat, a
+   pin for the names and a ringed question mark. Phones keep only the icons. */
+#tilt, #names, #about-open {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -586,6 +588,20 @@ button {
 }
 
 #tilt[aria-pressed="true"]::before { transform: skewX(-24deg); }
+
+/* The pin fills in while the names are on. */
+#names::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin: 0 1px 2px;
+  border: 1.2px solid currentColor;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+}
+
+#names[aria-pressed="true"] { border-color: var(--hair-hi); }
+#names[aria-pressed="true"]::before { background: currentColor; }
 
 #about-open::before {
   content: "?";
@@ -999,9 +1015,8 @@ button {
 @media (min-width: 641px) and (max-height: 860px) {
   .dek { display: none; }
   #light-toggle { display: block; }
-  /* With luz the three chips outgrow the panel's width: one row, flush right. */
+  /* With luz the four chips outgrow the panel's width: one row, flush right. */
   .light { width: auto; align-items: flex-end; }
-  .chips { flex-wrap: nowrap; }
   .light-panel { display: none; width: var(--rail); }
   .light-panel.open { display: block; }
   /* luz does the folding here: no header, the sliders always under it. */
@@ -1034,8 +1049,8 @@ button {
     top: calc(var(--top) + 58px);
     left: var(--left);
     z-index: 10;
-    min-width: 170px;
-    max-width: min(240px, calc(100vw - 2 * var(--gutter)));
+    /* Fixed to the intro's width, whatever the place's name. */
+    width: min(240px, calc(100vw - 2 * var(--gutter)));
     gap: 6px;
     padding: 9px 30px 10px 14px;
     cursor: pointer;
@@ -1052,7 +1067,6 @@ button {
   .light-body { padding: 0; }
   .place { --place: 20px; }
   .readout:not(.open) .facts > :not(.main) { display: none; }
-  .readout.open { width: 240px; }
 
   /* A caret says there is more under it. */
   .readout::after {
@@ -1072,16 +1086,20 @@ button {
 
   /* The dock: one button per sheet on the left, the two actions as round
      buttons on the right, all a thumb tall. */
+  /* One row: the dock stops short of the three round buttons (and a 6px
+     gap) and its four buttons share what is left. */
+  :root { --round: 38px; --round-gap: 6px; }
   .dock {
     display: flex;
     gap: 4px;
     position: absolute;
     left: var(--left);
+    right: calc(var(--right) + 3 * var(--round) + 2 * var(--round-gap) + 6px);
     bottom: var(--bottom);
     z-index: 13;
   }
 
-  .dock .chip { position: relative; height: 40px; padding: 0 8px; border-radius: 20px; }
+  .dock .chip { position: relative; flex: 1 1 auto; min-width: 0; height: 40px; padding: 0 4px; border-radius: 20px; letter-spacing: 0.02em; }
   .dock .chip[aria-expanded="true"] { background: var(--lamp); color: var(--night); }
 
   /* A lit dot on filtros while a filter is on. */
@@ -1102,23 +1120,24 @@ button {
     right: var(--right);
     bottom: var(--bottom);
     z-index: 13;
-    flex-wrap: nowrap;
-    gap: 6px;
+    gap: var(--round-gap);
   }
 
-  /* Icons instead of words: a plane, tilted or flat, and a question mark.
-     The words stay for screen readers. */
+  /* Icons instead of words: a plane, tilted or flat, a pin and a question
+     mark. The words stay for screen readers. */
   .chips .chip {
     display: grid;
     place-items: center;
-    width: 38px;
+    width: var(--round);
     height: 40px;
     padding: 0;
     border-radius: 20px;
     font-size: 0;
   }
 
-  #tilt, #about-open { gap: 0; }
+  #tilt, #names, #about-open { gap: 0; }
+  #names::before { width: 9px; height: 9px; border: 1.4px solid var(--lamp); }
+  #names[aria-pressed="true"]::before { background: var(--lamp); }
   #tilt::before { width: 14px; height: 9px; border: 1.4px solid var(--lamp); }
   #about-open::before { width: auto; height: auto; border: 0; font-size: 14px; }
 
@@ -1180,13 +1199,12 @@ button {
   .tl-note { display: none; }
 }
 
-/* Narrow phones: the dock's row tightens so its four buttons clear the two
-   round ones. */
+/* Narrow phones: smaller round buttons and tighter words, so the row still
+   fits. */
 @media (max-width: 379px) {
+  :root { --round: 32px; --round-gap: 4px; }
   .dock { gap: 3px; }
-  .dock .chip { padding: 0 6px; letter-spacing: 0.02em; }
-  .chips { gap: 4px; }
-  .chips .chip { width: 34px; }
+  .dock .chip { padding: 0 2px; font-size: 8px; letter-spacing: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

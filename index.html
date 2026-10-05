@@ -42,7 +42,7 @@
        connection while the page loads. -->
   <link rel="preconnect" href="https://ipwho.is" crossorigin>
 
-  <link rel="stylesheet" href="app.css?v=66">
+  <link rel="stylesheet" href="app.css?v=70">
 </head>
 <body>
   <div id="map" aria-label="Mapa de pontos de estabelecimentos"></div>
@@ -125,7 +125,8 @@
     <div class="chips">
       <button type="button" id="light-toggle" class="chip" data-sheet="light" aria-expanded="false" aria-controls="light-panel">luz</button>
       <button type="button" id="tilt" class="chip" aria-pressed="true" title="Alternar entre vista inclinada e de cima">inclinado</button>
-      <button type="button" id="about-open" class="chip" aria-label="Como foi feito">como foi feito</button>
+      <button type="button" id="names" class="chip" aria-pressed="false" aria-label="Nomes das cidades" title="Mostrar os nomes das cidades">nomes</button>
+      <button type="button" id="about-open" class="chip" aria-label="Sobre: como foi feito">sobre</button>
     </div>
   </aside>
 
@@ -187,26 +188,18 @@
   <dialog id="about" class="about">
     <form method="dialog"><button class="close" aria-label="Fechar">×</button></form>
     <h2>Como foi feito</h2>
-    <p>Os pontos vêm do cadastro de CNPJ da Receita Federal: só estabelecimentos com situação
-      <em>ativa</em>. Cada endereço foi casado com um endereço do Cadastro Nacional de Endereços
-      para Fins Estatísticos (CNEFE) do Censo IBGE 2022, que tem as coordenadas, sempre com o
-      mesmo número ou lote.</p>
-    <p>Quando o endereço não tem número ou coordenada, o estabelecimento fica fora do mapa. Por isso
-      cada estado mostra quantos dos seus ativos foram geolocalizados. Vários estabelecimentos no
-      mesmo endereço viram um ponto só, como nos centros comerciais.</p>
-    <p>A vista do Brasil é uma amostra de 2 milhões dos <span id="sum-points"></span> pontos dos estados,
-      para caber no navegador. Abra um estado para ver todos os pontos dele.</p>
-    <p>A linha do tempo usa a data de início de atividade do cadastro e esconde os pontos cujo
-      estabelecimento mais antigo abriu depois do ano escolhido. Como o mapa só tem quem segue
-      ativo hoje, quem já fechou não aparece: ela mostra o que existe hoje e já existia naquele ano.
-      Não se vê o caso quando empresas ou setores inteiros encerram, como aconteceu na pandemia.</p>
-    <p>Os dois filtros, usados um de cada vez, separam os pontos de jeitos diferentes. O setor vem da atividade principal
-      declarada à Receita, nas 21 seções da CNAE: um endereço aparece se tiver ao menos um
-      estabelecimento no setor. A espécie do endereço vem do que o recenseador do IBGE anotou no
-      local em 2022, tirada dos endereços do CNEFE a uns 10 metros do ponto. Os dois podem discordar: uma empresa aberta numa casa é comércio para a
-      Receita e domicílio para o IBGE.</p>
-    <p>A soma de luz é aditiva: onde muitos pontos se empilham, a cor satura até o branco.
-      Brilho controla quantos pontos são precisos para isso.</p>
+    <p>Cada ponto é um estabelecimento com CNPJ <em>ativo</em> na Receita Federal, casado pelo
+      endereço, com o mesmo número ou lote, ao Cadastro Nacional de Endereços (CNEFE) do Censo IBGE
+      2022, que tem as coordenadas. Sem número ou coordenada, fica fora do mapa; vários no mesmo
+      endereço viram um ponto só.</p>
+    <p>A vista do Brasil é uma amostra de 2 milhões dos <span id="sum-points"></span> pontos.
+      Abra um estado para ver todos.</p>
+    <p>A linha do tempo usa a data de abertura e mostra o que existe hoje e já existia no ano
+      escolhido: quem fechou não aparece.</p>
+    <p>O setor vem da atividade declarada à Receita (CNAE); a espécie do endereço, do que o
+      recenseador do IBGE anotou no local. Podem discordar: uma empresa numa casa é comércio para
+      um e domicílio para o outro.</p>
+    <p>A luz é aditiva: onde muitos pontos se empilham, a cor satura até o branco.</p>
     <p class="fine">Dados: Receita Federal (CNPJ), IBGE (CNEFE, Censo 2022).
       Mapa: MapLibre e WebGL. <a href="https://github.com/rafapolo/brasilumen" target="_blank" rel="noopener">Código</a>.
       Por <a href="https://extrapolo.com" target="_blank" rel="noopener">extrapolo.com</a></p>
@@ -214,6 +207,6 @@
 
   <div id="error" class="error" role="alert" hidden></div>
 
-  <script src="app.js?v=64" defer></script>
+  <script src="app.js?v=66" defer></script>
 </body>
 </html>

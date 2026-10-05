@@ -184,6 +184,7 @@
   var current = null;      // uf whose points are on screen
   var requested = null;    // uf the user last asked for
   var tilted = true;
+  var names = false;       // the cities' names over the dots
   var fade = 1;            // 0..1 ramp applied to the gain when points arrive
   var fadeFrom = null;     // uf whose points fade out as `current` fades in
 
@@ -1532,6 +1533,7 @@
       var left = current;
       current = "BR";
       refreshTimeline();
+      showNames();
       lightUp(left);
     }
     var landing = fly(uf, view);
@@ -1561,6 +1563,7 @@
         var changed = current !== uf, from = current;
         current = uf;
         refreshTimeline();
+        showNames();
         if (changed) autoSnap();
         apply(true);
         countSoon();
@@ -1595,6 +1598,10 @@
   function hashUf() {
     var uf = location.hash.replace("#", "").split("/")[0].split("~")[0].toUpperCase();
     return meta[uf] ? uf : "BR";
+  }
+  // ~nomes in the same field turns the cities' names on.
+  function hashNames() {
+    return location.hash.replace("#", "").split("/")[0].split("~").indexOf("nomes") > 0;
   }
   function hashFilters() {
     var out = { sector: null, kind: null };
@@ -1637,6 +1644,7 @@
     var c = map.getCenter();
     var hash = "#" + requested.toLowerCase() + (sector !== null ? "~" + SECTOR_LETTERS[sector].toLowerCase() : "") +
       (kind !== null ? "~" + (kind + 1) : "") +
+      (names ? "~nomes" : "") +
       "/" + (map.getZoom() - screenShift()).toFixed(2) + "/" +
       c.lat.toFixed(5) + "/" + c.lng.toFixed(5) + "/" +
       Math.round(map.getBearing()) + "/" + Math.round(map.getPitch()) + "/" +
@@ -1661,6 +1669,106 @@
     $("tilt").textContent = on ? "inclinado" : "de cima";
   }
 
+  // ---------- names ----------
+
+  // The seat of every municipality (data/cidades.json, scripts/cidades.py),
+  // fetched the first time the names go on. Only the lit place's cities go in
+  // the source: the states around it stay dark and unnamed, and with no fade
+  // MapLibre places every label anew each frame the camera moves, so fewer is
+  // faster. One layer per zoom tier (each row's z, on the reference screen
+  // like the URL's zoom), so a name shows from its tier's zoom on. The top
+  // layer is placed first, so the capitals win a clash; inside a layer, the
+  // bigger city does.
+  var NAME_TIERS = [9, 8, 7, 6, 5, 3];
+  var NAME_COLOR = token("--dim", "#8f8473");
+  var CAPITAL_COLOR = token("--soft", "#cfc5b4");
+  var namesLoading = null;
+  var cities = null;       // every seat, as GeoJSON features
+  var namesUf = null;      // the place whose cities are in the source
+
+  function namesOf(uf) {
+    return {
+      type: "FeatureCollection",
+      features: uf === "BR" ? cities : cities.filter(function (f) { return f.properties.uf === uf; }),
+    };
+  }
+
+  function setNames(on) {
+    names = on;
+    $("names").setAttribute("aria-pressed", on ? "true" : "false");
+    showNames();
+  }
+
+  function showNames() {
+    // Before the map's load the layers have nowhere to go: load calls back.
+    if (!points) return;
+    if (map.getSource("cidades")) {
+      if (names && namesUf !== current) {
+        namesUf = current;
+        map.getSource("cidades").setData(namesOf(current));
+      }
+      NAME_TIERS.forEach(function (t) {
+        map.setLayoutProperty("cidades-" + t, "visibility", names ? "visible" : "none");
+      });
+      return;
+    }
+    if (!names || namesLoading) return;
+    namesLoading = fetch("data/cidades.json")
+      .then(function (r) {
+        if (!r.ok) throw new Error("cidades.json " + r.status);
+        return r.json();
+      })
+      .then(function (d) {
+        cities = d.cidades.map(function (c) {
+          return {
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [c[0], c[1]] },
+            properties: { n: c[2], uf: c[3], p: c[4], z: c[5] },
+          };
+        });
+        namesUf = current;
+        map.addSource("cidades", { type: "geojson", data: namesOf(current) });
+        NAME_TIERS.forEach(function (t) {
+          var size = t === 3 ? 13 : t <= 6 ? 12 : 11;
+          map.addLayer({
+            id: "cidades-" + t,
+            type: "symbol",
+            source: "cidades",
+            filter: ["==", ["get", "z"], t],
+            minzoom: t + screenShift(),
+            layout: {
+              "text-field": ["get", "n"],
+              "text-font": ["bricolage"],
+              "text-size": ["interpolate", ["linear"], ["zoom"], 4, size - 1, 12, size + 2],
+              // Beside the seat, not over it: the seat is where the light is.
+              "text-variable-anchor": ["left", "right"],
+              "text-radial-offset": 0.5,
+              "text-justify": "auto",
+              "text-max-width": 9,
+              "text-padding": 6,
+              "symbol-sort-key": ["-", 0, ["get", "p"]],
+              visibility: names ? "visible" : "none",
+            },
+            paint: {
+              "text-color": t === 3 ? CAPITAL_COLOR : NAME_COLOR,
+              "text-halo-color": "rgba(0, 0, 0, 0.85)",
+              "text-halo-width": 1.4,
+              "text-halo-blur": 0.6,
+            },
+          });
+        });
+        // The tiers ride on the screen's size, as the URL's zoom does.
+        map.on("resize", function () {
+          NAME_TIERS.forEach(function (t) { map.setLayerZoomRange("cidades-" + t, t + screenShift(), 24); });
+        });
+      })
+      .catch(function (err) {
+        console.error(err);
+        namesLoading = null;
+        setNames(false);
+      });
+  }
+
   // Takes fromHash()'s result and hands back the camera for select(). Shared
   // slider values hold while the camera stays at the shared zoom; the first
   // zoom away hands the sliders back to the zoom curve.
@@ -1668,6 +1776,7 @@
     var f = hashFilters();
     if (f.sector !== sector || f.kind !== kind) setFilter(f.sector, f.kind);
     if (h.view) setTilted(h.view.pitch > 0);
+    if (hashNames() !== names) setNames(hashNames());
     sharedKnobs = h.view && h.knobs ? Object.assign({ zoom: h.view.zoom }, h.knobs) : null;
     if (h.twinkle !== null) setTwinkle(h.twinkle);
     if (h.year !== null) { tl.target = tl.shown = h.year; tlRender(); }
@@ -1893,6 +2002,11 @@
       map.easeTo({ pitch: tilted ? TILT : 0, bearing: tilted ? map.getBearing() : 0, duration: reduceMotion ? 0 : 900 });
     });
 
+    $("names").addEventListener("click", function () {
+      setNames(!names);
+      writeHashSoon();
+    });
+
     $("about-open").addEventListener("click", function () {
       var about = $("about");
       // <dialog> came late to Safari (15.4): there, just show it.
@@ -1982,7 +2096,14 @@
         map = new maplibregl.Map({
           container: "map",
           // No basemap: a black background, so only the dot cloud reads as signal.
-          style: { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": "#000" } }] },
+          style: {
+            version: 8,
+            // The names' type: Bricolage cut to MapLibre's glyph format, Latin-1
+            // only (fonts/glyphs, see the README). The url must be absolute.
+            glyphs: new URL("fonts/glyphs/", location.href).href + "{fontstack}/{range}.pbf",
+            sources: {},
+            layers: [{ id: "bg", type: "background", paint: { "background-color": "#000" } }],
+          },
           bounds: [[b[0], b[1]], [b[2], b[3]]],
           fitBoundsOptions: { padding: padding() },
           minZoom: 2,
@@ -1990,7 +2111,7 @@
           pitch: TILT,
           antialias: false, // the dots antialias themselves; MSAA only costs fill
           attributionControl: false,
-          // No labels to fade in. With a fade, MapLibre keeps repainting at
+          // No fade on the names. With one, MapLibre keeps repainting at
           // full rate while anything (the twinkle) renders every < 300 ms.
           fadeDuration: 0,
           pixelRatio: Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO),
@@ -2001,6 +2122,7 @@
         map.on("load", function () {
           points = createPointsLayer();
           map.addLayer(points);
+          showNames();
           map.on("zoom", function () { schedule(true); });
           // A pan changes what is in frame as much as a zoom does.
           map.on("move", autoSoon);

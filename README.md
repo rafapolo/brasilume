@@ -74,7 +74,18 @@ não muda.
 Ao mudar `app.js`, `app.css` ou `worker.js`, suba o `?v=` em `index.html` e em `app.js`, para o
 cache do GitHub Pages não misturar versões. `thumbs/` são imagens estáticas de cada UF usadas na prévia do seletor.
 `fonts/` traz as duas fontes (Bricolage Grotesque e Martian Mono, variáveis, subconjunto latino)
-servidas daqui, com as licenças SIL OFL.
+servidas daqui, com as licenças SIL OFL. `fonts/glyphs/bricolage/0-255.pbf` é a Bricolage no
+formato de glifos do MapLibre, para os nomes das cidades: uma instância estática (peso 500,
+`opsz` 14) tirada com o `fontTools.varLib.instancer` e convertida com `build_pbf_glyphs`
+(`cargo install build_pbf_glyphs`); só o Latin-1, que cobre todos os nomes.
+
+### Nomes das cidades
+
+O botão **nomes** mostra o nome da sede de cada município. `data/cidades.json` sai de
+`python3 scripts/cidades.py`: coordenadas das sedes do IBGE (tabela kelvins/municipios-brasileiros)
+e população do Censo 2022 (SIDRA, tabela 4709). A população decide quem aparece primeiro e de mais
+longe: as capitais desde a vista do Brasil, as cidades menores só de perto. No link, vai como
+`~nomes` no primeiro campo do hash (`#sp~nomes/...`).
 
 ### Dados fora do git
 
