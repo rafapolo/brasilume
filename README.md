@@ -1,10 +1,10 @@
-# brasilumen
+# brasilume
 
 Cada ponto é um estabelecimento com CNPJ ativo, posto no seu endereço do Censo IBGE 2022.
 
-**https://rafapolo.github.io/brasilumen/** · link direto para um estado: `#sp`, `#rj`, `#ba`…
+**https://rafapolo.github.io/brasilume/** · link direto para um estado: `#sp`, `#rj`, `#ba`…
 
-![São Paulo no brasilumen](screenshot.webp)
+![São Paulo no brasilume](screenshot.webp)
 
 ## Dados
 

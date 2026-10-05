@@ -1495,7 +1495,7 @@
       // A point is an address: establishments sharing one are a single dot,
       // so this counts addresses, not establishments.
       row("visíveis na tela", "–", "now", "onscreen");
-    document.title = (uf === "BR" ? "brasilumen" : (NAMES[uf] + " · brasilumen"));
+    document.title = (uf === "BR" ? "brasilume" : (NAMES[uf] + " · brasilume"));
   }
 
   // The place's name stays on one line: the long ones shrink to fit.
