@@ -28,6 +28,9 @@
   // clicked, and panning on into a neighbour opens that one.
   var DETAIL_ZOOM = 7;
   var PREFETCH_ZOOM = 5.5;
+  // Inside a state, from this zoom a neighbour in frame is fetched ahead. Not
+  // from the whole-state view: every state shows its neighbours there.
+  var NEIGHBOUR_ZOOM = 8;
 
   var TL_MIN = 1900;
   var TL_MAX = 2025;
@@ -224,7 +227,7 @@
       delete levelsFor[d.id];
       if (target) {
         target.levels = d.levels;
-        if (points) points.refresh();
+        if (points) points.warm(target);
       }
       return;
     }
@@ -267,7 +270,7 @@
         years: pts.years, hist: pts.hist, hasYears: pts.hasYears, boxes: pts.boxes, chunk: pts.chunk,
         firstYear: null,
         // The sector filter's view of it, see filterData(): all of it here.
-        histAll: pts.hist, nView: pts.n, view: null, setores: null, especies: null,
+        histAll: pts.hist, nView: pts.n, sub: null, setores: null, especies: null,
       };
       remember(uf, data);
       levelsFor[pts.id] = uf;
@@ -434,6 +437,8 @@
     var params = { alpha: 0.8, gain: 1, radius: BASE_RADIUS, year: TL_MAX - 1900, yearMax: TL_MAX - 1900 };
     var m = new Float32Array(16);  // the frame's matrix, shifted to a set's origin
     var twinkleTimer = 0;
+    // Buffers to upload ahead of their first draw, see warm().
+    var warmQueue = [];
 
     function setup() {
       prog = gl.createProgram();
@@ -571,6 +576,14 @@
         gl.disableVertexAttribArray(loc.a_count);
         gl.disableVertexAttribArray(loc.a_year);
         if (twinkle) twinkleSoon();
+        // One queued buffer per frame while the camera rests: the coarse
+        // levels are what a move draws, and uploading one (a million dots on
+        // SP) the moment the camera starts would cost that first frame.
+        if (warmQueue.length && !map.isMoving()) {
+          var job = warmQueue.shift();
+          if (cache.get(job.uf) === job.d) bufferFor(job.key, job.array);
+          if (warmQueue.length) map.triggerRepaint();
+        }
 
         function draw(d, l) {
           // matrix maps Mercator [0,1] to clip space; shift it to d's origin.
@@ -612,6 +625,15 @@
       show: function (d, from, k) { data = d; prev = from || null; mix = from ? k : 1; map.triggerRepaint(); },
 
       refresh: function () { map.triggerRepaint(); },
+
+      // Queue d's merged levels for upload, see the end of render().
+      warm: function (d) {
+        d.levels.forEach(function (level) {
+          var key = d.uf + ":" + level.k;
+          if (!buffers.has(key)) warmQueue.push({ uf: d.uf, d: d, key: key, array: level.data });
+        });
+        map.triggerRepaint();
+      },
 
       // The filters changed d.sub: drop its buffers, the next draw uploads
       // the new ones (one pair per place, never one per filter).
@@ -1152,6 +1174,17 @@
     return null;
   }
 
+  // The first other state under the frame's corners and edges, if any.
+  function neighbourInFrame() {
+    var c = map.getContainer(), w = c.clientWidth, h = c.clientHeight;
+    var at = [[0, 0], [w / 2, 0], [w, 0], [w, h / 2], [w, h], [w / 2, h], [0, h], [0, h / 2]];
+    for (var i = 0; i < at.length; i++) {
+      var ll = map.unproject(at[i]), uf = ufAt(ll.lng, ll.lat);
+      if (uf && meta[uf] && uf !== requested && uf !== "BR") return uf;
+    }
+    return null;
+  }
+
   // After the camera rests: warm up the state ahead (zoom is nearly there), and
   // once deep enough open it, keeping the camera exactly where it is.
   function followCamera() {
@@ -1160,7 +1193,12 @@
     if (z < PREFETCH_ZOOM) return;
     var c = map.getCenter();
     var uf = ufAt(c.lng, c.lat);
-    if (!uf || !meta[uf] || uf === requested) return;
+    if (!uf || !meta[uf] || uf === requested) {
+      // Inside a state, close in by a border: the state across it is likely
+      // next, so its file comes ahead while the camera rests here.
+      if (requested !== "BR" && z >= NEIGHBOUR_ZOOM) prefetchSoon(neighbourInFrame());
+      return;
+    }
     if (z < DETAIL_ZOOM) { if (requested === "BR") prefetchSoon(uf); return; }
     // The filter set over Brasil holds: the state opens already filtered.
     select(uf, {
@@ -1929,6 +1967,8 @@
   function prefetchSoon(uf) {
     clearTimeout(prefetchTimer);
     if (!uf || !meta[uf] || prefetched[uf] || cache.has(uf)) return;
+    // Data saver on: only what is asked for.
+    if (navigator.connection && navigator.connection.saveData) return;
     prefetchTimer = setTimeout(function () {
       prefetched[uf] = true;
       // Read the body through, or the browser may not keep it in the cache.

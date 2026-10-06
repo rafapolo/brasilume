@@ -81,6 +81,11 @@ ao parar, o quadro é redesenhado exato. A luz automática também lê os nívei
 com filtro tanto ela quanto o desenho usam só os pontos que passam nele. O cintilar redesenha o mapa
 parado a 20 quadros por segundo.
 
+Navegando dentro de um estado, perto da divisa (zoom 8 em diante), o arquivo do estado vizinho
+que aparece na tela já é baixado em segundo plano, então atravessar a divisa não espera o download
+(nada é pré-baixado com a economia de dados do navegador ligada). Os níveis agrupados vão para a
+GPU um por quadro enquanto o mapa está parado, antes do primeiro movimento que os usa.
+
 O framebuffer tem 8 bits por canal e cada soma arredonda: sem cuidado, milhões de pontos fracos
 arredondariam os canais para lados opostos e somariam vermelho ou amarelo puros nas bordas. O
 shader arredonda cada contribuição ao acaso, na proporção da fração (dither), e cada canal fica
