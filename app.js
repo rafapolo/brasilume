@@ -372,6 +372,7 @@
     "uniform float u_twinkle;",
     "uniform float u_cell;",     // twinkle cell, in Mercator units
     "varying float v_count;",
+    "varying float v_seed;",
     "float hash(vec2 p) {",
     "  vec3 q = fract(vec3(p.xyx) * 0.1031);",
     "  q += dot(q, q.yzx + 33.33);",
@@ -394,6 +395,7 @@
     "    tw += u_twinkle * sin(u_time * w + 6.2832 * h) * (0.7 + 0.3 * sin(u_time * w * 0.31 + 6.2832 * g));",
     "  }",
     "  v_count = min(a_count, 60000.0) * tw * born;",  // stays finite in mediump; white long before
+    "  v_seed = hash(a_pos * 1048576.0);",  // one per dot, for the dither
     "}",
   ].join("\n");
 
@@ -408,10 +410,19 @@
     "uniform float u_radius;",   // R, CSS px
     "uniform float u_extent;",   // R + 0.5, the sprite's half-size in CSS px
     "varying float v_count;",
+    "varying float v_seed;",
     "void main() {",
     "  float d = length(gl_PointCoord * 2.0 - 1.0) * u_extent;",
     "  float cover = smoothstep(d - 0.5, d + 0.5, u_radius);",
-    "  gl_FragColor = vec4(u_rgb * min(1.0, u_light * cover) * v_count, 1.0);",
+    "  vec3 c = min(u_rgb * min(1.0, u_light * cover) * v_count, 1.0);",
+    // The framebuffer has 8 bits a channel and every blend rounds: millions
+    // of dim dots, each a fraction of a step, would round their channels
+    // apart (the strong red up, the weaker green and blue down) and sum to
+    // pure red or yellow at the edges. Rounding at random instead, by the
+    // fraction, keeps each channel right on average. The draw is per dot and
+    // pixel, never per frame, so the twinkle's repaints do not shimmer.
+    "  float u = fract(sin(dot(gl_FragCoord.xy + v_seed * 977.0, vec2(12.9898, 78.233))) * 43758.5453);",
+    "  gl_FragColor = vec4(floor(c * 255.0 + u) / 255.0, 1.0);",
     "}",
   ].join("\n");
 
@@ -1389,6 +1400,10 @@
   var AUTO_MEAN = 0.7;
   var AUTO_WHITE = 0.2;
   var AUTO_SIZE_MAX = 0.75;
+  // Close in, past AUTO_CLOSE_ZOOM, the streets read better lit up: the light
+  // grows by up to AUTO_CLOSE_BOOST, reached two zoom levels further in.
+  var AUTO_CLOSE_ZOOM = 11;
+  var AUTO_CLOSE_BOOST = 2.5;
   function autoLook() {
     var s = autoStats();
     if (!s) return null;
@@ -1420,7 +1435,8 @@
       seen += cells[k];
       burnt = below = here;
     }
-    var light = clamp(Math.min(lo, 1 / (burnt * cover)), 0.001, 2.5);
+    var close = clamp((map.getZoom() - AUTO_CLOSE_ZOOM) / 2, 0, 1);
+    var light = clamp(Math.min(lo, 1 / (burnt * cover)) * (1 + close * (AUTO_CLOSE_BOOST - 1)), 0.001, 2.5);
     var opacity = clamp(Math.sqrt(light), 0.05, 1);
     return { opacity: opacity, brightness: clamp(light / opacity, 0.02, 2.5), dotsize: size };
   }

@@ -81,6 +81,11 @@ ao parar, o quadro é redesenhado exato. A luz automática também lê os nívei
 com filtro tanto ela quanto o desenho usam só os pontos que passam nele. O cintilar redesenha o mapa
 parado a 20 quadros por segundo.
 
+O framebuffer tem 8 bits por canal e cada soma arredonda: sem cuidado, milhões de pontos fracos
+arredondariam os canais para lados opostos e somariam vermelho ou amarelo puros nas bordas. O
+shader arredonda cada contribuição ao acaso, na proporção da fração (dither), e cada canal fica
+certo na média.
+
 Ao mudar `app.js`, `app.css` ou `worker.js`, suba o `?v=` em `index.html` e em `app.js`, para o
 cache do GitHub Pages não misturar versões. `thumbs/` são imagens estáticas de cada UF usadas na prévia do seletor.
 `fonts/` traz as duas fontes (Bricolage Grotesque e Martian Mono, variáveis, subconjunto latino)
